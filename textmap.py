@@ -1,4 +1,5 @@
 # Copyright 2011, Dan Gindikin <dgindikin@gmail.com>
+# Copyright 2012, Jono Finger <jono@foodnotblogs.com>
 #
 # This program is free software; you can redistribute it and/or modify it under
 # the terms of the GNU General Public License as published by the Free Software
@@ -14,10 +15,7 @@
 # this program; if not, write to the Free Software Foundation, Inc., 51
 # Franklin Street, Fifth Floor, Boston, MA 02110-1301, USA.
 
-import gtk
 import time
-import gobject
-import gedit
 import sys
 import math
 import cairo
@@ -25,7 +23,9 @@ import re
 import copy
 import platform
 
-version = "0.2 beta"
+from gi.repository import Gtk, GdkPixbuf, Gdk, GtkSource, Gio, Gedit, GObject
+
+version = "0.2 beta - gtk3"
 
 # ------------------------------------------------------------------------------
 # These regular expressions are applied in sequence ot each line, to determine
@@ -58,6 +58,7 @@ SubsectionREs = (
 
 class struct:pass
 
+
 class TimeRec:
   def __init__(M):
     M.tot = M.N = M.childtot = M.heretot = 0
@@ -83,16 +84,16 @@ class Timer:
     tmrec.N += 1
     #for parent in M.stack:
     #  M.dat[parent].childtot += dur
-    if M.stack <> []:
+    if M.stack != []:
       M.dat[M.stack[-1]].childtot += dur
   def print_(M):
     for tmrec in M.dat.values():
       tmrec.heretot = tmrec.tot-tmrec.childtot
     R = sorted(M.dat.items(),lambda x,y:-cmp(x[1].heretot,y[1].heretot))
-    print '%7s %7s %5s' % ('Tm Here', 'Tm Avg', 'Count')
+    print ('%7s %7s %5s' % ('Tm Here', 'Tm Avg', 'Count'))
     for L,tmrec in R:
-      print '%7s %7s %5d %s' % ('%.3f'%tmrec.heretot, '%.3f'%(tmrec.heretot/float(tmrec.N)), tmrec.N, L)
-    print
+      print ('%7s %7s %5d %s' % ('%.3f'%tmrec.heretot, '%.3f'%(tmrec.heretot/float(tmrec.N)), tmrec.N, L))
+    print ()
       
 #TIMER = Timer()
 TIMER = None
@@ -111,7 +112,7 @@ def indent(s):
 def probj(ob,*substrs):
   meths = dir(ob)
   meths.sort()
-  print ob,type(ob)
+  print (ob,type(ob))
   for m in meths:
     doprint=True
     if substrs:
@@ -121,7 +122,7 @@ def probj(ob,*substrs):
           doprint=True
           break
     if doprint:
-      print '%40s'%m
+      print ('%40s'%m)
       
 def match_RE_list(str, REs):
   for r in REs:
@@ -138,6 +139,7 @@ def document_lines(document):
   lines = STR.split('\n')
   ans = []
   for i,each in enumerate(lines):
+
     x = struct()
     x.i = i
     x.len = len(each)
@@ -156,6 +158,7 @@ def document_lines(document):
         groups = match.groups()
         if len(groups) == 2:
           x.indentSTR, x.justextSTR = groups
+
     ans.append(x)
   return ans
   
@@ -200,10 +203,10 @@ BUG_DOC_GET_SEARCH_TEXT = 4
 if platform.system() == 'Darwin':
   BUG_MASK |= BUG_CAIRO_MAC_FONT_REF  # extra decref causes aborts, use less font ops
 
-major,minor,patch = gedit.version
-if major<=2 and minor<28:
-  BUG_MASK |= BUG_CAIRO_TEXT_EXTENTS  # some reference problem
-  BUG_MASK |= BUG_DOC_GET_SEARCH_TEXT # missing INCREF then
+# major,minor,patch = Gedit.version
+# if major<=2 and minor<28:
+#   BUG_MASK |= BUG_CAIRO_TEXT_EXTENTS  # some reference problem
+#   BUG_MASK |= BUG_DOC_GET_SEARCH_TEXT # missing INCREF then
   
 def text_extents(str,cr):
   "code around bug in older cairo"
@@ -231,7 +234,7 @@ def text_extents(str,cr):
     
 def pr_text_extents(s,cr):
   x_bearing, y_bearing, width, height, x_advance, y_advance = cr.text_extents(s)
-  print repr(s),':','x_bearing',x_bearing,'y_bearing',y_bearing,'width',width,'height',height,'x_advance',x_advance,'y_advance',y_advance
+  print (repr(s),':','x_bearing',x_bearing,'y_bearing',y_bearing,'width',width,'height',height,'x_advance',x_advance,'y_advance',y_advance)
   
 def show_section_label(str, fg, bg, cr):
   tw,th = text_extents(str,cr)
@@ -568,8 +571,8 @@ def queue_refresh(textmapview):
   except AttributeError:
     win = textmapview.darea.window
   if win:
-    w,h = win.get_size()
-    textmapview.darea.queue_draw_area(0,0,w,h)
+#    w,h = win.get_size()
+    textmapview.darea.queue_draw_area(0,0,win.get_width(),win.get_height())
     
 def str2rgb(s):
   assert s.startswith('#') and len(s)==7,('not a color string',s)
@@ -609,7 +612,7 @@ def mark_changed_lines(doc,original,current):
   c=0
   for oline in original:
     end = doc.get_iter_at_mark(oline.mark)
-    slice = doc.get_slice(start,end)
+    slice = doc.get_slice(start, end, False)
     # see if the first line between the marks is the original line
     if slice.split('\n',1)[0] == oline.raw:
       current[c].changed = False
@@ -630,27 +633,27 @@ def lines_mark_search_matches(lines,docrec):
   
 Split_Off_Indent_Pattern = re.compile('(\s*)(.*)$')
       
-class TextmapView(gtk.VBox):
+class TextmapView(Gtk.VBox):
   def __init__(me, geditwin):
-    gtk.VBox.__init__(me)
+    Gtk.VBox.__init__(me)
     
     me.geditwin = geditwin
     
-    darea = gtk.DrawingArea()
-    darea.connect("expose-event", me.expose)
+    darea = Gtk.DrawingArea()
+    darea.connect("draw", me.expose)
     
-    darea.add_events(gtk.gdk.BUTTON_PRESS_MASK)
+    darea.add_events(Gdk.EventMask.BUTTON_PRESS_MASK)
     darea.connect("button-press-event", me.button_press)
     darea.connect("scroll-event", me.on_darea_scroll_event)
-    darea.add_events(gtk.gdk.ENTER_NOTIFY_MASK)
+    darea.add_events(Gdk.EventMask.ENTER_NOTIFY_MASK)
     darea.connect("enter-notify-event", me.on_darea_enter_notify_event)
-    darea.add_events(gtk.gdk.LEAVE_NOTIFY_MASK)
+    darea.add_events(Gdk.EventMask.LEAVE_NOTIFY_MASK)
     darea.connect("leave-notify-event", me.on_darea_leave_notify_event)
-    darea.add_events(gtk.gdk.POINTER_MOTION_MASK)
+    darea.add_events(Gdk.EventMask.POINTER_MOTION_MASK)
     darea.connect("motion-notify-event", me.on_darea_motion_notify_event)
     
     
-    me.pack_start(darea, True, True)
+    me.pack_start(darea, True, True, 0)
     
     me.darea = darea
     #probj(me.darea)
@@ -695,7 +698,7 @@ class TextmapView(gtk.VBox):
   def on_darea_motion_notify_event(me, widget, event):
     #probj(event)
     #print event.type
-    if event.state & gtk.gdk.BUTTON1_MASK:
+    if event.state & Gdk.ModifierType.BUTTON1_MASK:
       me.scroll_from_y_mouse_pos(event.y)
       
   def on_darea_enter_notify_event(me, widget, event):
@@ -743,7 +746,7 @@ class TextmapView(gtk.VBox):
     #new_line_count = doc.get_line_count()
     #print 'new_line_count',new_line_count
     topL = visible_lines_top_bottom(me.geditwin)[0]
-    if topL <> me.topL:
+    if topL != me.topL:
       queue_refresh(me)
       me.draw_scrollbar_only = True
     
@@ -786,19 +789,20 @@ class TextmapView(gtk.VBox):
       me.draw_scrollbar_only = True
     else:
       me.draw_sections = True # for the first scroll, turn on section names
-    gobject.timeout_add(500,me.on_scroll_finished) # this will fade out sections
+    GObject.timeout_add(500, me.on_scroll_finished) # this will fade out sections
     queue_refresh(me)
     
   def on_search_highlight_updated(me,doc,t,u):
     #print 'on_search_highlight_updated:',repr(doc.get_search_text())
     docrec = me.doc_attached_data[id(doc)]
-    s = doc.get_search_text()[0]
-    if s <> docrec.search_text:
+
+    s = doc.get_search_text(0)  #  = doc.get_search_text(0)[0] # TODO fix flags
+    if s != docrec.search_text:
       docrec.search_text = s
       queue_refresh(me)    
     
   def test_event(me, ob, event):
-    print 'here',ob
+    print ('here',ob)
     
   def save_refs_to_all_font_faces(me, cr, *scales):
     me.font_face_keepalive = []
@@ -806,7 +810,7 @@ class TextmapView(gtk.VBox):
       cr.set_font_size(each)
       me.font_face_keepalive.append(cr.get_font_face())
     
-  def expose(me, widget, event):
+  def expose(me, widget, cr):
     doc = me.geditwin.get_active_tab().get_document()
     if not doc:   # nothing open yet
       return
@@ -839,7 +843,7 @@ class TextmapView(gtk.VBox):
         fg = (0,0,0)
       else:
         fg,bg = map(str2rgb, style.get_properties('foreground','background'))  
-    except Exception,e:
+    except:
       pass  # probably an older version of gedit, no style schemes yet
     
     changeCLR = (1,0,1)
@@ -864,8 +868,8 @@ class TextmapView(gtk.VBox):
       win = widget.get_window()
     except AttributeError:
       win = widget.window
-    w,h = map(float,win.get_size())
-    cr = widget.window.cairo_create()
+    w,h = map(float, (win.get_width(), win.get_height()) )
+    cr = widget.get_window().cairo_create()
     
     #probj(cr,'rgb')
     
@@ -899,7 +903,7 @@ class TextmapView(gtk.VBox):
       if BUG_MASK & BUG_DOC_GET_SEARCH_TEXT:
         pass
       else:
-        docrec.search_text = doc.get_search_text()[0]
+        docrec.search_text = doc.get_search_text(0)   # TODO make sure this flag is right
         lines = lines_mark_search_matches(lines,docrec)
      
       cr.push_group()
@@ -1149,10 +1153,10 @@ class TextmapWindowHelper:
     me.plugin = plugin
 
     panel = me.window.get_side_panel()
-    image = gtk.Image()
-    image.set_from_stock(gtk.STOCK_DND_MULTIPLE, gtk.ICON_SIZE_BUTTON)
+    image = Gtk.Image()
+    image.set_from_stock(Gtk.STOCK_DND_MULTIPLE, Gtk.IconSize.BUTTON)
     me.textmapview = TextmapView(me.window)
-    me.ui_id = panel.add_item(me.textmapview, "TextMap", image)
+    me.ui_id = panel.add_item(me.textmapview, "TextMap", "textMap", image)
     
     me.panel = panel
 
@@ -1164,22 +1168,27 @@ class TextmapWindowHelper:
   def update_ui(me):
     queue_refresh(me.textmapview)
     
-class TextmapPlugin(gedit.Plugin):
-  def __init__(me):
-    gedit.Plugin.__init__(me)
-    me._instances = {}
+    
+class WindowActivatable(GObject.Object, Gedit.WindowActivatable):
+  
+  window = GObject.property(type=Gedit.Window)
 
-  def activate(me, window):
-    me._instances[window] = TextmapWindowHelper(me, window)
+  def __init__(self):
+    GObject.Object.__init__(self)
+    self._instances = {}
 
-  def deactivate(me, window):
-    if window in me._instances:
-      me._instances[window].deactivate()
+  def do_activate(self):
+    self._instances[self.window] = TextmapWindowHelper(self, self.window)
 
-  def update_ui(me, window):
+  def do_deactivate(self):
+    if self.window in self._instances:
+      self._instances[self.window].deactivate()
+
+  def update_ui(self):
     # Called whenever the window has been updated (active tab
     # changed, etc.)
     #print 'plugin.update_ui'
-    if window in me._instances:
-      me._instances[window].update_ui()
+    if self.window in self._instances:
+      self._instances[self.window].update_ui()
       #window.do_expose_event()
+      

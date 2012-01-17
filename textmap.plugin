@@ -1,0 +1,9 @@
+[Plugin]
+Loader=python
+Module=textmap
+IAge=3
+Name=Text Map
+Description=Navigatable thumbnail of the entire file
+Authors=Dan Gindikin <dgindikin@gmail.com>, Jono Finger <jono@foodnotblogs.com>
+Copyright=Copyright © 2011 Dan Gindikin <dgindikin@gmail.com>, Jono Finger <jono@foodnotblogs.com>
+Website=https://github.com/jonocodes/GeditTextmap
