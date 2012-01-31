@@ -28,37 +28,10 @@ from gi.repository import Gtk, GdkPixbuf, Gdk, GtkSource, Gio, Gedit, GObject
 version = "0.2 beta - gtk3"
 
 # ------------------------------------------------------------------------------
-# These regular expressions are applied in sequence ot each line, to determine
-# whether it is a section start or not
-
-SectionREs = (
-  re.compile('def\s*(\w+)\s*\('),                          # python method
-  re.compile('class\s*(\w+)\s*'),                          # python/java class
-  
-  re.compile('cdef\s*class\s*(\w+)\s*[(:]'),               # cython class
-  re.compile('cdef\s*(?:[\w\.]*?\**\s*)?(\w+)\s*\('),      # cython method
-  
-  re.compile('^(\w*)\s*\('),                               # C method
-  re.compile('^\w+[\w\s\*]*?(\w*)\s*\('),                  # C method
-  
-  re.compile('^function\s*(\w+)\s*\('),                    # javascript method
-  
-  re.compile('\w+[\w\s]*?class (\w*)'),                    # java class
-)
-
-SubsectionREs = (
-  re.compile('\s+def\s*(\w+)\s*\('),                       # python class method
-  
-  re.compile('\s+cdef\s*(?:[\w\.]*?\**\s*)?(\w+)\s*\('),   # cython class method
-  
-  re.compile('\s+(?:public|static|private|final)[\w\s]*?(\w+)\s*\('), # java method
-)
-
-# ------------------------------------------------------------------------------
 
 class struct:pass
 
-
+# Timers are used for debugging rendering times
 class TimeRec:
   def __init__(M):
     M.tot = M.N = M.childtot = M.heretot = 0
@@ -94,7 +67,7 @@ class Timer:
     for L,tmrec in R:
       print ('%7s %7s %5d %s' % ('%.3f'%tmrec.heretot, '%.3f'%(tmrec.heretot/float(tmrec.N)), tmrec.N, L))
     print ()
-      
+
 #TIMER = Timer()
 TIMER = None
    
@@ -143,56 +116,12 @@ def document_lines(document):
     x = struct()
     x.i = i
     x.len = len(each)
-    x.indent = indent(each)
     x.raw = each
-    x.section = match_RE_list(x.raw,SectionREs)
-    x.subsection = None
     x.search_match = False
-    if not x.section:
-      x.subsection = match_RE_list(x.raw,SubsectionREs)
-    if x.section or x.subsection:
-      match = Split_Off_Indent_Pattern.match(x.raw)
-      x.indentSTR = None
-      x.justextSTR = None
-      if match:
-        groups = match.groups()
-        if len(groups) == 2:
-          x.indentSTR, x.justextSTR = groups
 
     ans.append(x)
   return ans
-  
-def lines_add_section_len(lines):
-  line_prevsection = None
-  counter = 0
-  for i, line in enumerate(lines):
-    if line.section:
-      if line_prevsection:
-        line_prevsection.section_len = counter
-      line_prevsection = line
-      counter = 0
-    counter += 1
-  if line_prevsection:
-    line_prevsection.section_len = counter
-  return lines
 
-def lines_mark_changed_sections(lines):
-  sec = None
-  subsec = None
-  for line in lines:
-    if line.section:
-      line.sectionchanged = False
-      sec = line
-      subsec = None
-    if line.subsection:
-      line.subsectionchanged = False
-      subsec = line
-    if line.changed:
-      if sec is not None:
-        sec.sectionchanged = True
-      if subsec is not None:
-        subsec.subsectionchanged = True
-  return lines
   
 BUG_MASK = 0
 
@@ -235,16 +164,6 @@ def text_extents(str,cr):
 def pr_text_extents(s,cr):
   x_bearing, y_bearing, width, height, x_advance, y_advance = cr.text_extents(s)
   print (repr(s),':','x_bearing',x_bearing,'y_bearing',y_bearing,'width',width,'height',height,'x_advance',x_advance,'y_advance',y_advance)
-  
-def show_section_label(str, fg, bg, cr):
-  tw,th = text_extents(str,cr)
-  x,y = cr.get_current_point()
-  cr.set_source_rgba(bg[0],bg[1],bg[2],.75)
-  cr.rectangle(x,y-th+3,tw,th)
-  cr.fill()
-  cr.move_to(x,y)
-  cr.set_source_rgb(*fg)
-  cr.show_text(str)
     
 def fit_text(str, w, h, fg, bg, cr):
   moved_down = False
@@ -320,16 +239,10 @@ def downsample_lines(lines, h, min_scale, max_scale):
   # need to downsample
   lines[0].score = sys.maxint # keep the first line
   for i in range(1, len(lines)):
-    if lines[i].section:  # keep sections
-      lines[i].score = sys.maxint
-    elif lines[i].subsection:
-      lines[i].score = sys.maxint/2
-    elif lines[i].changed or lines[i].search_match:
+
+    if lines[i].changed or lines[i].search_match:
       lines[i].score = sys.maxint/2
     else:
-      if 0: # get rid of lines that are very different
-        lines[i].score = abs(lines[i].indent-lines[i-1].indent) \
-                         + abs(len(lines[i].raw)-len(lines[i-1].raw))
       if 1: # get rid of lines randomly
         lines[i].score = hash(lines[i].raw)
         if lines[i].score > sys.maxint/2:
@@ -365,7 +278,9 @@ def lighten(fraction,r,g,b):
   return r+(1-r)*fraction,g+(1-g)*fraction,b+(1-b)*fraction
   
 def scrollbar(lines,topI,botI,w,h,bg,cr,scrollbarW=10):
-  "top and bot a passed as line indices"
+
+  "highlights where in the textmap we are scrolled to"
+
   # figure out location
   topY = None
   botY = None
@@ -381,189 +296,19 @@ def scrollbar(lines,topI,botI,w,h,bg,cr,scrollbarW=10):
     topY = 0
   if botY is None:
     botY = lines[-1].y
-
-  if 0: # bg rectangle     
-    cr.set_source_rgba(.1,.1,.1,.35)
-    cr.rectangle(w-scrollbarW,0,scrollbarW,topY)
-    cr.fill()
-    cr.rectangle(w-scrollbarW,botY,scrollbarW,h-botY)
-    cr.fill()
-    
-  if 0: # scheme 1
-    cr.set_line_width(1)
-    #cr.set_source_rgb(0,0,0)
-    #cr.set_source_rgb(1,1,1)
-    cr.set_source_rgb(0xd3/256.,0xd7/256.,0xcf/256.)
-    if 0: # big down line
-      cr.set_source_rgb(0xd3/256.,0xd7/256.,0xcf/256.)
-      cr.move_to(w-scrollbarW/2.,0)
-      cr.line_to(w-scrollbarW/2.,topY)
-      cr.stroke()
-      cr.move_to(w-scrollbarW/2.,botY)
-      cr.line_to(w-scrollbarW/2.,h)
-      cr.stroke()
-    if 0:
-      cr.rectangle(w-scrollbarW,topY,scrollbarW-1,botY-topY)
-      cr.stroke()
-    if 1: # bottom lines
-      #cr.set_line_width(2)
-      #cr.move_to(w-scrollbarW,topY)
-      cr.move_to(0,topY)
-      cr.line_to(w,topY)
-      cr.stroke()
-      cr.move_to(0,botY)
-      cr.line_to(w,botY)
-      cr.stroke()
-    if 0: # rect
-      cr.set_source_rgba(.5,.5,.5,.1)
-      #cr.set_source_rgba(.1,.1,.1,.35)
-      #cr.rectangle(w-scrollbarW,topY,scrollbarW,botY-topY)
-      cr.rectangle(0,topY,w,botY-topY)
-      cr.fill()
-
-  if 0: # scheme 2
-    cr.set_line_width(3)
-    cr.set_source_rgb(0xd3/256.,0xd7/256.,0xcf/256.)
-    if 1: # bottom lines
-      cr.move_to(0,topY)
-      cr.line_to(w,topY)
-      cr.stroke()
-      cr.move_to(0,botY)
-      cr.line_to(w,botY)
-      cr.stroke()
-    if 1: # side lines
-      cr.set_line_width(2)
-      len = (botY-topY)/8
-      margin = 1
-      if 0: # left
-        cr.move_to(margin,topY)
-        cr.line_to(margin,topY+len)
-        cr.stroke()
-        cr.move_to(margin,botY-len)
-        cr.line_to(margin,botY)
-        cr.stroke()
-      if 1: # right
-        cr.move_to(w-margin,topY)
-        cr.line_to(w-margin,topY+len)
-        cr.stroke()
-        cr.move_to(w-margin,botY-len)
-        cr.line_to(w-margin,botY)
-        cr.stroke()
-    if 0: # center
-      len = (botY-topY)/5
-      cx = w/2
-      cy = topY+(botY-topY)/2
-      if 1: # vert
-        for x in (cx,):#(cx-len/2,cx,cx+len/2):
-          cr.move_to(x,cy-len/2)
-          cr.line_to(x,cy+len/2)
-          cr.stroke()
-      if 0: # horiz
-        cr.move_to(cx-len/2,cy)
-        cr.line_to(cx+len/2,cy)
-        cr.stroke()
-    
-  if 0: # view indicator  
-    cr.set_source_rgba(.5,.5,.5,.5)
+  
+  if 1: # view indicator  
+    cr.set_source_rgba(.3,.3,.3,.35)
     #cr.set_source_rgba(.1,.1,.1,.35)
-    cr.rectangle(w-scrollbarW,topY,scrollbarW,botY-topY)
+    cr.rectangle(0,topY,w,botY-topY)
     cr.fill()
-    cr.rectangle(w-scrollbarW,topY,scrollbarW-1,botY-topY)
-    cr.set_line_width(.5)
-    cr.set_source_rgb(1,1,1)
-    #cr.set_source_rgb(0,0,0)
     cr.stroke()
-  
-  if 0: # lines
-    cr.set_source_rgb(1,1,1)
-    cr.move_to(w,0)
-    cr.line_to(w-scrollbarW,topY)
-    cr.line_to(w-scrollbarW,botY)
-    cr.line_to(w,h)
-    cr.stroke()
-    
-  if 0: # scheme 3
-  
-    if 1: # black lines
-      cr.set_line_width(2)
-      cr.set_source_rgb(0,0,0)
-      cr.move_to(0,topY)
-      cr.line_to(w,topY)
-      cr.stroke()
-      cr.move_to(0,botY)
-      cr.line_to(w,botY)
-      cr.stroke() 
-      
-    if 1: # white lines
-      cr.set_line_width(2)
-      cr.set_dash([1,2])
-      cr.set_source_rgb(1,1,1)
-      cr.move_to(0,topY)
-      cr.line_to(w,topY)
-      cr.stroke()
-      cr.move_to(0,botY)
-      cr.line_to(w,botY)
-      cr.stroke()   
-  
-  if 0: # scheme 4
-    pat = cairo.LinearGradient(0,topY-10,0,topY)
-    pat.add_color_stop_rgba(0, 1, 1, 1,1)
-    pat.add_color_stop_rgba(1, .2,.2,.2,1)
-    pat.add_color_stop_rgba(2, 0, 0, 0,1)
-    cr.rectangle(0,topY-10,w,10)
-    cr.set_source(pat)
-    cr.fill()
-    
-  if 0: # triangle right
-    # triangle
-    size=12
-    midY = topY+(botY-topY)/2
-    cr.set_line_width(2)
-    cr.set_source_rgb(1,1,1)
-    cr.move_to(w-size-1,midY)
-    cr.line_to(w-1,midY-size/2)
-    #cr.stroke_preserve()
-    cr.line_to(w-1,midY+size/2)
-    #cr.stroke_preserve()
-    cr.line_to(w-size-1,midY)
-    cr.fill()
-    # line
-    cr.move_to(w-2,topY+2)
-    cr.line_to(w-2,botY-2)
-    cr.stroke()
-    
+
   if dark(*bg):
     color = (1,1,1)
   else:
     color = (0,0,0)
     
-  if 0: # triangle left
-    # triangle
-    size=12
-    midY = topY+(botY-topY)/2
-    cr.set_line_width(2)
-    cr.set_source_rgb(*color)
-    cr.move_to(size+1,midY)
-    cr.line_to(1,midY-size/2)
-    #cr.stroke_preserve()
-    cr.line_to(1,midY+size/2)
-    #cr.stroke_preserve()
-    cr.line_to(size+1,midY)
-    cr.fill()
-    # line
-    #cr.move_to(2,topY+2)
-    #cr.line_to(2,botY-2)
-    #cr.stroke()
-    
-  if 1: # dashed lines
-    cr.set_line_width(2)
-    cr.set_source_rgb(*color)
-    cr.set_dash([8,8])
-    #cr.rectangle(2,topY,w-4,botY-topY)
-    cr.move_to(4,topY); cr.line_to(w,topY)
-    cr.stroke()
-    cr.move_to(4,botY); cr.line_to(w,botY)
-    cr.stroke()
         
 def queue_refresh(textmapview):
   try:
@@ -640,15 +385,12 @@ class TextmapView(Gtk.VBox):
     me.geditwin = geditwin
     
     darea = Gtk.DrawingArea()
-    darea.connect("draw", me.expose)
+    darea.connect("draw", me.draw)
     
     darea.add_events(Gdk.EventMask.BUTTON_PRESS_MASK)
     darea.connect("button-press-event", me.button_press)
     darea.connect("scroll-event", me.on_darea_scroll_event)
-    darea.add_events(Gdk.EventMask.ENTER_NOTIFY_MASK)
-    darea.connect("enter-notify-event", me.on_darea_enter_notify_event)
-    darea.add_events(Gdk.EventMask.LEAVE_NOTIFY_MASK)
-    darea.connect("leave-notify-event", me.on_darea_leave_notify_event)
+
     darea.add_events(Gdk.EventMask.POINTER_MOTION_MASK)
     darea.connect("motion-notify-event", me.on_darea_motion_notify_event)
     
@@ -696,51 +438,41 @@ class TextmapView(Gtk.VBox):
      #'''
   
   def on_darea_motion_notify_event(me, widget, event):
-    #probj(event)
-    #print event.type
-    if event.state & Gdk.ModifierType.BUTTON1_MASK:
-      me.scroll_from_y_mouse_pos(event.y)
-      
-  def on_darea_enter_notify_event(me, widget, event):
-    if event.mode.value_name == 'GDK_CROSSING_GTK_UNGRAB':
-      return
-    #print 'in here enter'
-    me.draw_sections = True
-    queue_refresh(me)
+    # used for clicking and dragging
     
-  def on_darea_leave_notify_event(me, widget, event):
-    #print 'in here leaving'
-    me.draw_sections = False
-    queue_refresh(me)
+    # TODO: speed this up
+
+    if event.state & Gdk.ModifierType.BUTTON1_MASK:
+      #print (event.y)
+      me.scroll_from_y_mouse_pos(event.y)
     
   def on_darea_scroll_event(me, widget, event):
-    pass
-    #print 'XXX on_darea_scroll_event'
     
+    #print ('on_darea_scroll_event ' , event.y)
+    #pass
     # this scheme does not work
     # somehow pass this on, scroll the document/view
     #print type(widget),widget,type(event),event
     #probj(event)
-    #view = me.geditwin.get_active_view()
-    #if not view:
-    #  return
-    #return view.emit('scroll-event',event)
+    # view = me.geditwin.get_active_view()
+    # if not view:
+    #   return
+    # return view.emit('scroll-event',event)
 
-    # the following crashes
-    #pagesize = 12
-    #topI,botI = visible_lines_top_bottom(me.geditwin)
-    #if event.direction == gtk.gdk.SCROLL_UP:
-    #  newI = topI - pagesize
-    #elif event.direction == gtk.gdk.SCROLL_DOWN:
-    #  newI = botI + pagesize
-    #else:
-    #  return
-    #  
-    #view = me.geditwin.get_active_view()
-    #doc  = me.geditwin.get_active_tab().get_document()
-    #view.scroll_to_iter(doc.get_iter_at_line_index(newI,0),0,False,0,0)
-    #
-    #queue_refresh(me)
+    pagesize = 12
+    topI,botI = visible_lines_top_bottom(me.geditwin)
+    if event.direction == Gdk.ScrollDirection.UP and topI > pagesize:
+      newI = topI - pagesize
+    elif event.direction == Gdk.ScrollDirection.DOWN:
+      newI = botI + pagesize
+    else:
+      return
+      
+    view = me.geditwin.get_active_view()
+    doc  = me.geditwin.get_active_tab().get_document()
+    view.scroll_to_iter(doc.get_iter_at_line_index(newI,0),0,False,0,0)
+    
+    queue_refresh(me)
     
   def on_doc_cursor_moved(me, doc):
     #new_line_count = doc.get_line_count()
@@ -751,6 +483,7 @@ class TextmapView(Gtk.VBox):
       me.draw_scrollbar_only = True
     
   def on_insert_text(me, doc, piter, text, len):
+    queue_refresh(me)
     pass
     #if len < 20 and '\n' in text:
     #  print 'piter',piter,'text',repr(text),'len',len
@@ -759,7 +492,7 @@ class TextmapView(Gtk.VBox):
     for line in me.lines:
       if line.y > y:
         break
-    #print line.i, repr(line.raw)
+#    print line.i, repr(line.raw)
     view = me.geditwin.get_active_view()
     doc = me.geditwin.get_active_tab().get_document()
     
@@ -774,22 +507,22 @@ class TextmapView(Gtk.VBox):
   def button_press(me, widget, event):
     me.scroll_from_y_mouse_pos(event.y)
     
-  def on_scroll_finished(me):
-    #print 'in here',me.last_scroll_time,time.time()-me.last_scroll_time
-    if time.time()-me.last_scroll_time > .47:
-      if me.draw_sections:
-        me.draw_sections = False
-        me.draw_scrollbar_only = False
-        queue_refresh(me)
-    return False
+  # def on_scroll_finished(me):
+  #   #print 'in here',me.last_scroll_time,time.time()-me.last_scroll_time
+  #   if time.time()-me.last_scroll_time > .47:
+  #     if me.draw_sections:
+  #       me.draw_sections = False
+  #       me.draw_scrollbar_only = False
+  #       queue_refresh(me)
+  #   return False
     
   def on_scroll_event(me,view,event):
     me.last_scroll_time = time.time()
-    if me.draw_sections: # we are in the middle of scrolling
-      me.draw_scrollbar_only = True
-    else:
-      me.draw_sections = True # for the first scroll, turn on section names
-    GObject.timeout_add(500, me.on_scroll_finished) # this will fade out sections
+    # if me.draw_sections: # we are in the middle of scrolling
+    #   me.draw_scrollbar_only = True
+    # else:
+    #   me.draw_sections = True # for the first scroll, turn on section names
+    #GObject.timeout_add(500, me.on_scroll_finished) # this will fade out sections
     queue_refresh(me)
     
   def on_search_highlight_updated(me,doc,t,u):
@@ -801,16 +534,13 @@ class TextmapView(Gtk.VBox):
       docrec.search_text = s
       queue_refresh(me)    
     
-  def test_event(me, ob, event):
-    print ('here',ob)
-    
   def save_refs_to_all_font_faces(me, cr, *scales):
     me.font_face_keepalive = []
     for each in scales:
       cr.set_font_size(each)
       me.font_face_keepalive.append(cr.get_font_face())
     
-  def expose(me, widget, cr):
+  def draw(me, widget, cr):
     doc = me.geditwin.get_active_tab().get_document()
     if not doc:   # nothing open yet
       return
@@ -819,13 +549,14 @@ class TextmapView(Gtk.VBox):
       me.connected[id(doc)] = True
       doc.connect("cursor-moved", me.on_doc_cursor_moved)
       doc.connect("insert-text", me.on_insert_text)
+      # TODO: handle text removal
       doc.connect("search-highlight-updated", me.on_search_highlight_updated)
       
     view = me.geditwin.get_active_view()
     if not view:
       return
     
-    if TIMER: TIMER.push('expose')
+    if TIMER: TIMER.push('draw')
     
     if id(view) not in me.connected:
       me.connected[id(view)] = True
@@ -933,14 +664,6 @@ class TextmapView(Gtk.VBox):
       smooshed = False
       if downsampled or scale < max_scale:
         smooshed = True
-      
-      if TIMER: TIMER.push('lines_add_section_len')
-      lines = lines_add_section_len(lines)
-      if TIMER: TIMER.pop('lines_add_section_len')
-      
-      if TIMER: TIMER.push('lines_mark_changed_sections')
-      lines = lines_mark_changed_sections(lines)
-      if TIMER: TIMER.pop('lines_mark_changed_sections')
 
       n = len(lines)
       lineH = h/n
@@ -963,7 +686,7 @@ class TextmapView(Gtk.VBox):
         faded_fg = lighten(.5,*fg)
       else:
         faded_fg = darken(.5,*fg)
-          
+      
       rectH = h/float(len(lines))
       sofarH= 0
       sections = []
@@ -986,19 +709,9 @@ class TextmapView(Gtk.VBox):
           else:
             cr.set_source_rgb(*fg)
             
-          if line.section or line.subsection:
-            #cr.select_font_face(fontfamily, cairo.FONT_SLANT_NORMAL, cairo.FONT_WEIGHT_BOLD)
-            cr.set_font_size(scale+3)
-            if line.justextSTR:
-              x,y = cr.get_current_point()
-              cr.move_to(whitespaceW*line.indent,y)
-              cr.show_text(line.justextSTR)
-            else:
-              cr.show_text(line.raw)
-          else:
             #cr.select_font_face(fontfamily, cairo.FONT_SLANT_NORMAL, cairo.FONT_WEIGHT_NORMAL)
-            cr.set_font_size(scale)
-            cr.show_text(line.raw)
+          cr.set_font_size(scale)
+          cr.show_text(line.raw)
           
           if smooshed:
             sofarH += lineH
@@ -1010,90 +723,12 @@ class TextmapView(Gtk.VBox):
           else:
             sofarH += scale-1
           
-        if line.section:
-          sections.append((line, lastH))
+        # if line.section:
+        #   sections.append((line, lastH))
           
         cr.move_to(0, sofarH)
         
       if TIMER: TIMER.pop('draw silhouette')
-          
-      # ------------------- display sections and subsections labels  ------------------
-
-      if me.draw_sections:
-        # Subsections
-        
-        if TIMER: TIMER.push('draw subsections')
-        
-        if dark(*bg):
-          bg_rect_C = lighten(.1,*bg)
-        else:
-          bg_rect_C = darken(.1,*bg)
-          
-        if 0: # - blot out the background -
-          cr.set_source_rgba(bg_rect_C[0],bg_rect_C[1],bg_rect_C[2],.5)
-          cr.rectangle(0,0,w,h)
-          cr.fill()
-        
-        cr.new_path()
-        cr.set_line_width(1.5)
-        subsW = 10
-        subsmargin = 10
-        cr.set_font_size(10)
-        for line in lines:
-          if line.subsection:
-            if 0:
-              cr.move_to(subsmargin,line.y)
-              cr.line_to(subsmargin+subsW,line.y)
-            #if line.subsectionchanged:
-            #  cr.set_source_rgb(*changeCLR)
-            #else:
-            #  cr.set_source_rgb(*fg)
-            if 0:
-              cr.set_source_rgb(*fg)
-              cr.arc(subsmargin,line.y+3,2,0,6.28)
-              cr.stroke()
-            if 1:
-              #cr.move_to(20,line.y)
-              cr.set_source_rgb(*fg)
-              #cr.show_text(line.subsection)
-              cr.move_to(whitespaceW*line.indent,line.y)
-              #cr.move_to(10,line.y)
-              #fit_text(line.subsection, 10000, 10000, fg, bg, cr)
-              show_section_label(line.subsection, fg, bg_rect_C, cr)
-              
-        if TIMER: TIMER.pop('draw subsections')
-        
-        # Sections
-        
-        if TIMER: TIMER.push('draw sections')
-        cr.set_font_size(12)
-        for line, lastH in sections:
-        
-          if 0: # section lines
-            cr.move_to(0, lastH)
-            cr.set_line_width(1)
-            cr.set_source_rgb(*fg)
-            cr.line_to(w,lastH)
-            cr.stroke()
-          
-          if 1: # section heading
-            cr.move_to(0,lastH)
-            #if line.sectionchanged:
-            #  cr.set_source_rgb(*changeCLR)
-            #else:
-            #  cr.set_source_rgb(*fg)
-            cr.set_source_rgb(*fg)         
-            #dispnfo = fit_text(line.section,4*w/5,line.section_len*rectH,fg,bg,cr)
-            show_section_label(line.section, fg, bg_rect_C, cr)
-            
-          if 0 and dispnfo: # section hatches
-            cr.set_line_width(1)
-            r=dispnfo[0] # first line
-            cr.move_to(r.x+r.tw+2,r.y-r.th/2+2)
-            cr.line_to(w,r.y-r.th/2+2)
-            cr.stroke()
-            
-        if TIMER: TIMER.pop('draw sections')
           
       # ------------------ translate back for the scroll bar -------------------
       
@@ -1143,7 +778,7 @@ class TextmapView(Gtk.VBox):
     me.topL = topL
     me.draw_scrollbar_only = False
     
-    if TIMER: TIMER.pop('expose')
+    if TIMER: TIMER.pop('draw')
     if TIMER: TIMER.print_()
       
         
@@ -1185,10 +820,6 @@ class WindowActivatable(GObject.Object, Gedit.WindowActivatable):
       self._instances[self.window].deactivate()
 
   def update_ui(self):
-    # Called whenever the window has been updated (active tab
-    # changed, etc.)
-    #print 'plugin.update_ui'
     if self.window in self._instances:
       self._instances[self.window].update_ui()
-      #window.do_expose_event()
-      
+
