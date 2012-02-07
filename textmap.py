@@ -27,79 +27,12 @@ from gi.repository import Gtk, GdkPixbuf, Gdk, GtkSource, Gio, Gedit, GObject
 
 version = "0.2 beta - gtk3"
 
-# ------------------------------------------------------------------------------
-
-class struct:pass
 
 def document_lines(document):
   if not document:
     return None
 
-  STR = document.get_property('text')
-  lines = STR.split('\n')
-  ans = []
-
-  for i,each in enumerate(lines):
-
-    x = struct()
-    x.i = i
-    x.raw = each
-
-    ans.append(x)
-  return ans
-
-  
-BUG_MASK = 0
-
-BUG_CAIRO_MAC_FONT_REF  = 1
-BUG_CAIRO_TEXT_EXTENTS  = 2
-BUG_DOC_GET_SEARCH_TEXT = 4
-
-if platform.system() == 'Darwin':
-  BUG_MASK |= BUG_CAIRO_MAC_FONT_REF  # extra decref causes aborts, use less font ops
-
-# major,minor,patch = Gedit.version
-# if major<=2 and minor<28:
-#   BUG_MASK |= BUG_CAIRO_TEXT_EXTENTS  # some reference problem
-#   BUG_MASK |= BUG_DOC_GET_SEARCH_TEXT # missing INCREF then
-  
-def text_extents(str,cr):
-  "code around bug in older cairo"
-  
-  # if BUG_MASK & BUG_CAIRO_TEXT_EXTENTS:  
-  #   if str:
-  #     x, y = cr.get_current_point()
-  #     cr.move_to(0,-5)
-  #     cr.show_text(str)
-  #     nx,ny = cr.get_current_point()
-  #     cr.move_to(x,y)
-  #   else:
-  #     nx = 0
-  #     ny = 0
-
-  #   #print repr(str),x,nx,y,ny
-  #   ascent, descent, height, max_x_advance, max_y_advance = cr.font_extents()
-  
-  #   return nx, height
-  
-  # else:
-  
-  x_bearing, y_bearing, width, height, x_advance, y_advance = cr.text_extents(str)
-  return width, height
-
-
-# def downsample_lines2(lines, h, min_scale, max_scale):
-#   n = len(lines)
-  
-#   # pick scale
-#   for scale in range(max_scale,min_scale-1,-1): # 3,2,1
-#     maxlines_ = h/(.85*scale)
-#     if n < 2*maxlines_:
-#       break
-    
-#   downsampled = False
-  
-#   return lines, scale, downsampled
+  return document.get_property('text').split('\n')
 
 def visible_lines_top_bottom(geditwin):
   view = geditwin.get_active_view()
@@ -120,22 +53,7 @@ def darken(fraction,r,g,b):
   
 def lighten(fraction,r,g,b):
   return r+(1-r)*fraction,g+(1-g)*fraction,b+(1-b)*fraction
-  
-def scrollbar(linePixelHeight, lines,topI,botI,w,h,cr, firstLine):
 
-  "highlights where in the textmap we are scrolled to"
-
-  topY = (topI - firstLine) * linePixelHeight
-  if topY < 0: topY = 0
-  botY = topY + linePixelHeight*(botI-topI)
-  # TODO: handle case   if botY > ?
-
-  cr.set_source_rgba(.3,.3,.3,.35)
-  cr.rectangle(0,topY,w,botY-topY)
-  cr.fill()
-  cr.stroke()
-
-        
 def queue_refresh(textmapview):
   try:
     win = textmapview.darea.get_window()
@@ -159,7 +77,6 @@ class TextmapView(Gtk.VBox):
 
     me.geditwin.connect("active-tab-changed", me.tab_changed)
     me.geditwin.connect("tab-added", me.tab_added)
-    # TODO: handle other "active-tab-state-changed" like signals
     
     darea = Gtk.DrawingArea()
     darea.connect("draw", me.draw)
@@ -171,18 +88,13 @@ class TextmapView(Gtk.VBox):
     darea.add_events(Gdk.EventMask.POINTER_MOTION_MASK)
     darea.connect("motion-notify-event", me.on_darea_motion_notify_event)
     
-    
     me.pack_start(darea, True, True, 0)
-
-    me.connected = {}
-
-    me.topL = None
-    me.botL = None
     
     me.show_all()
 
-    me.scale = 5
-
+    me.topL = None
+    me.botL = None
+    me.scale = 4   # TODO: set this smartly somehow
     me.darea = darea
 
     me.winHeight = 0
@@ -191,66 +103,38 @@ class TextmapView(Gtk.VBox):
 
     me.currentDoc = None
     me.currentView = None
-    
-     #'''
-     #   gtk.gdk.SCROLL_UP, 
-     #  gtk.gdk.SCROLL_DOWN, 
-     #  gtk.gdk.SCROLL_LEFT, 
-     #  gtk.gdk.SCROLL_RIGHT
-   #
-     #Example:
-   #
-     #  def on_button_scroll_event(button, event):
-     #    if event.direction == gtk.gdk.SCROLL_UP:
-     #       print "You scrolled up"
-     #       
-     #event = gtk.gdk.Event(gtk.gdk.EXPOSE)
-     #
-     #      def motion_notify(ruler, event):
-     #          return ruler.emit("motion_notify_event", event)
-     #      self.area.connect_object("motion_notify_event", motion_notify,
-     #                               self.hruler)
-     #      self.area.connect_object("motion_notify_event", motion_notify,
-     #                               self.vruler)
-     #'''
-  
+
   def tab_added(me, window, tab):
     me.currentView = tab.get_view()
-    
     me.currentDoc = tab.get_document()
 
     me.currentDoc.connect('changed', me.on_doc_changed)
-    me.currentView.connect('scroll-event', me.on_scroll_event)
-
-    print ('tab_added')
+    me.currentView.get_vadjustment().connect('value-changed', me.on_vadjustment_changed)
+    # TODO: make sure value-changed is not conflicting with darea move events
 
   def tab_changed(me, window, event):
-    # TODO: handle when there are no docs
     me.currentView = me.geditwin.get_active_view()
     me.currentDoc = me.geditwin.get_active_tab().get_document()
 
     me.lines = document_lines(me.currentDoc)
-    print ('tab_changed lines ' + str(len(me.lines)))
     queue_refresh(me)
-
 
   def on_doc_changed(me, buffer):
     me.lines = document_lines(me.currentDoc)
-    print ('doc_changed lines ' + str(len(me.lines)))
     queue_refresh(me)
 
-  # def on_doc_load(me, doc, file, encoding, line_pos, col_pos):
-  #   print ('doc load')
+  def on_vadjustment_changed(me, adjustment):
+    queue_refresh(me)
 
   def on_darea_motion_notify_event(me, widget, event):
-    # used for clicking and dragging
+    "used for clicking and dragging"
 
     if event.state & Gdk.ModifierType.BUTTON1_MASK:
       me.scroll_from_y_mouse_pos(event.y)
     
   def on_darea_scroll_event(me, widget, event):
     
-    pagesize = 12
+    pagesize = 12 # TODO: match this to me.currentView.get_vadjustment().get_page_size()
     topL, botL = visible_lines_top_bottom(me.geditwin)
     if event.direction == Gdk.ScrollDirection.UP and topL > pagesize:
       newI = topL - pagesize
@@ -265,20 +149,12 @@ class TextmapView(Gtk.VBox):
     
   def scroll_from_y_mouse_pos(me,y):
 
-    firstLine = int((len(me.lines) + (me.botL - me.topL)) * y/me.winHeight)
-#    if firstLine < 0 : firstLine = 0
-
-    me.currentView.scroll_to_iter(me.currentDoc.get_iter_at_line_index(firstLine,0),0,True,0,.5)
-
+    me.currentView.scroll_to_iter(me.currentDoc.get_iter_at_line_index(int((len(me.lines) + (me.botL - me.topL)) * y/me.winHeight),0),0,True,0,.5)
     queue_refresh(me)
     
   def button_press(me, widget, event):
     me.scroll_from_y_mouse_pos(event.y)
   
-  def on_scroll_event(me,view,event):
-    me.last_scroll_time = time.time()
-    queue_refresh(me)
-    
   def draw(me, widget, cr):
 
     if not me.currentDoc or not me.currentView:   # nothing open yet
@@ -300,39 +176,33 @@ class TextmapView(Gtk.VBox):
       win = widget.get_window()
     except AttributeError:
       win = widget.window
-    w,h = map(float, (win.get_width(), win.get_height()) )
-    cr = widget.get_window().cairo_create()
 
-    me.winHeight = h # remove h alltogether and replace with me.winHeight
-    me.winWidth = w
+    cr = win.cairo_create()
 
-    # Are we drawing everything, or just the scrollbar?
-    fontfamily = 'sans-serif'
-    cr.select_font_face('monospace', cairo.FONT_SLANT_NORMAL, cairo.FONT_WEIGHT_NORMAL)
-    
-    cr.set_font_size(me.scale)
-    me.linePixelHeight = text_extents("L", cr)[1] # make this more global
+    me.winHeight = win.get_height()
+    me.winWidth = win.get_width()
 
-    me.topL, me.botL = visible_lines_top_bottom(me.geditwin)
-
-    firstLine = 0
-   
     cr.push_group()
     
-    # bg
+    # draw the background
     cr.set_source_rgb(*bg)
     cr.move_to(0,0)
-    cr.rectangle(0,0,w,h)
+    cr.rectangle(0,0,me.winWidth,me.winHeight)
     cr.fill()
     cr.move_to(0,0)
     
     if not me.lines:
       return
 
+    # draw the text
+    cr.select_font_face('monospace', cairo.FONT_SLANT_NORMAL, cairo.FONT_WEIGHT_NORMAL)
+    cr.set_font_size(me.scale)
 
-    # ------------------------ display text silhouette -----------------------
+    if me.linePixelHeight == 0:
+      me.linePixelHeight = cr.text_extents("L")[3] # height # TODO: make this more global
 
-    
+    me.topL, me.botL = visible_lines_top_bottom(me.geditwin)
+
     if dark(*fg):
       faded_fg = lighten(.5,*fg)
     else:
@@ -340,7 +210,7 @@ class TextmapView(Gtk.VBox):
     
     cr.set_source_rgb(*fg)
 
-    textViewLines = int(h/me.linePixelHeight)
+    textViewLines = int(me.winHeight/me.linePixelHeight)
 
     firstLine = me.topL - int((textViewLines - (me.botL - me.topL)) * float(me.topL)/float(len(me.lines)))
     if firstLine < 0: firstLine = 0
@@ -348,23 +218,29 @@ class TextmapView(Gtk.VBox):
     lastLine =  firstLine + textViewLines
     if lastLine > len(me.lines): lastLine = len(me.lines)
 
-
     sofarH = 0
 
     for i in range(firstLine, lastLine, 1):
-      cr.show_text(me.lines[i].raw)  
+      cr.show_text(me.lines[i])  
       sofarH += me.linePixelHeight
       cr.move_to(0, sofarH)
 
-    cr.set_source(cr.pop_group())  # draw everything but the scrollbar
-    cr.rectangle(0,0,w,h)
+    cr.set_source(cr.pop_group())
+    cr.rectangle(0,0,me.winWidth,me.winHeight)
     cr.fill()
-        
-    # ------------------------------- scrollbar -------------------------------
 
-    scrollbar(me.linePixelHeight, me.lines, me.topL, me.botL,w,h,cr, firstLine)
-    
-    
+    # draw the scrollbar
+    topY = (me.topL - firstLine) * me.linePixelHeight
+    if topY < 0: topY = 0
+    botY = topY + me.linePixelHeight*(me.botL-me.topL)
+    # TODO: handle case   if botY > ?
+
+    cr.set_source_rgba(.3,.3,.3,.35)
+    cr.rectangle(0,topY,me.winWidth,botY-topY)
+    cr.fill()
+    cr.stroke()
+
+
 class TextmapWindowHelper:
   def __init__(me, plugin, window):
     me.window = window
