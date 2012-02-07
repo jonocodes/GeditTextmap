@@ -34,8 +34,7 @@ def document_lines(document):
 
   return document.get_property('text').split('\n')
 
-def visible_lines_top_bottom(geditwin):
-  view = geditwin.get_active_view()
+def visible_lines_top_bottom(view):
   rect = view.get_visible_rect()
   topiter = view.get_line_at_y(rect.y)[0]
   botiter = view.get_line_at_y(rect.y+rect.height)[0]
@@ -70,15 +69,13 @@ def str2rgb(s):
   return r,g,b
       
 class TextmapView(Gtk.VBox):
-  def __init__(me, geditwin):
+  def __init__(me, geditview):
     Gtk.VBox.__init__(me)
     
-    me.geditwin = geditwin
-
-    me.geditwin.connect("active-tab-changed", me.tab_changed)
-    me.geditwin.connect("tab-added", me.tab_added)
+    me.geditview = geditview
     
     darea = Gtk.DrawingArea()
+    # TODO: handle resize
     darea.connect("draw", me.draw)
     
     darea.add_events(Gdk.EventMask.BUTTON_PRESS_MASK)
@@ -87,7 +84,11 @@ class TextmapView(Gtk.VBox):
 
     darea.add_events(Gdk.EventMask.POINTER_MOTION_MASK)
     darea.connect("motion-notify-event", me.on_darea_motion_notify_event)
+
+    me.mapWidth = 200
     
+    darea.set_size_request(me.mapWidth, geditview.get_window(Gtk.TextWindowType.TEXT).get_height());
+
     me.pack_start(darea, True, True, 0)
     
     me.show_all()
@@ -101,29 +102,29 @@ class TextmapView(Gtk.VBox):
     me.winWidth = 0
     me.linePixelHeight = 0
 
-    me.currentDoc = None
-    me.currentView = None
+    me.currentView = geditview
+    me.currentBuffer = geditview.get_buffer()
 
-  def tab_added(me, window, tab):
-    me.currentView = tab.get_view()
-    me.currentDoc = tab.get_document()
-
-    me.currentDoc.connect('changed', me.on_doc_changed)
+    me.currentBuffer.connect('changed', me.on_doc_changed)
     me.currentView.get_vadjustment().connect('value-changed', me.on_vadjustment_changed)
-    # TODO: make sure value-changed is not conflicting with darea move events
 
-  def tab_changed(me, window, event):
-    me.currentView = me.geditwin.get_active_view()
-    me.currentDoc = me.geditwin.get_active_tab().get_document()
+    me.lines = document_lines(me.currentBuffer)
 
-    me.lines = document_lines(me.currentDoc)
+    me.geditview.add_child_in_window(me, Gtk.TextWindowType.TEXT, 
+      me.geditview.get_window(Gtk.TextWindowType.TEXT).get_width()-me.mapWidth, 0)
+    
     queue_refresh(me)
 
+
   def on_doc_changed(me, buffer):
-    me.lines = document_lines(me.currentDoc)
+    me.lines = document_lines(me.currentBuffer)
     queue_refresh(me)
 
   def on_vadjustment_changed(me, adjustment):
+    y = adjustment.get_value() / 100
+#    print ('adjustment value = ' + str(adjustment.get_value()) + ' y =' + str(y))
+    me.geditview.move_child(me,
+      me.geditview.get_window(Gtk.TextWindowType.TEXT).get_width()-me.mapWidth, y)
     queue_refresh(me)
 
   def on_darea_motion_notify_event(me, widget, event):
@@ -135,7 +136,7 @@ class TextmapView(Gtk.VBox):
   def on_darea_scroll_event(me, widget, event):
     
     pagesize = 12 # TODO: match this to me.currentView.get_vadjustment().get_page_size()
-    topL, botL = visible_lines_top_bottom(me.geditwin)
+    topL, botL = visible_lines_top_bottom(me.currentView)
     if event.direction == Gdk.ScrollDirection.UP and topL > pagesize:
       newI = topL - pagesize
     elif event.direction == Gdk.ScrollDirection.DOWN:
@@ -143,13 +144,13 @@ class TextmapView(Gtk.VBox):
     else:
       return
 
-    me.currentView.scroll_to_iter(me.currentDoc.get_iter_at_line_index(newI,0),0,False,0,0)
+    me.currentView.scroll_to_iter(me.currentBuffer.get_iter_at_line_index(newI,0),0,False,0,0)
     
     queue_refresh(me)
     
   def scroll_from_y_mouse_pos(me,y):
 
-    me.currentView.scroll_to_iter(me.currentDoc.get_iter_at_line_index(int((len(me.lines) + (me.botL - me.topL)) * y/me.winHeight),0),0,True,0,.5)
+    me.currentView.scroll_to_iter(me.currentBuffer.get_iter_at_line_index(int((len(me.lines) + (me.botL - me.topL)) * y/me.winHeight),0),0,True,0,.5)
     queue_refresh(me)
     
   def button_press(me, widget, event):
@@ -157,13 +158,13 @@ class TextmapView(Gtk.VBox):
   
   def draw(me, widget, cr):
 
-    if not me.currentDoc or not me.currentView:   # nothing open yet
+    if not me.currentBuffer or not me.currentView:   # nothing open yet
       return
     
     bg = (0,0,0)
     fg = (1,1,1)
     try:
-      style = me.currentDoc.get_style_scheme().get_style('text')
+      style = me.currentBuffer.get_style_scheme().get_style('text')
       if style is None: # there is a style scheme, but it does not specify default
         bg = (1,1,1)
         fg = (0,0,0)
@@ -201,7 +202,7 @@ class TextmapView(Gtk.VBox):
     if me.linePixelHeight == 0:
       me.linePixelHeight = cr.text_extents("L")[3] # height # TODO: make this more global
 
-    me.topL, me.botL = visible_lines_top_bottom(me.geditwin)
+    me.topL, me.botL = visible_lines_top_bottom(me.currentView)
 
     if dark(*fg):
       faded_fg = lighten(.5,*fg)
@@ -241,18 +242,11 @@ class TextmapView(Gtk.VBox):
     cr.stroke()
 
 
-class TextmapWindowHelper:
-  def __init__(me, plugin, window):
-    me.window = window
+class TextmapViewHelper:
+  def __init__(me, plugin, view):
+    me.view = view
     me.plugin = plugin
-
-    panel = me.window.get_side_panel()
-    image = Gtk.Image()
-    image.set_from_stock(Gtk.STOCK_DND_MULTIPLE, Gtk.IconSize.BUTTON)
-    me.textmapview = TextmapView(me.window)
-    me.ui_id = panel.add_item(me.textmapview, "TextMap", "textMap", image)
-    
-    me.panel = panel
+    me.textmapview = TextmapView(me.view)
 
   def deactivate(me):
     me.window = None
@@ -263,21 +257,21 @@ class TextmapWindowHelper:
     queue_refresh(me.textmapview)
     
     
-class WindowActivatable(GObject.Object, Gedit.WindowActivatable):
+class ViewActivatable(GObject.Object, Gedit.ViewActivatable):
   
-  window = GObject.property(type=Gedit.Window)
+  view = GObject.property(type=Gedit.View)
 
   def __init__(self):
     GObject.Object.__init__(self)
     self._instances = {}
 
   def do_activate(self):
-    self._instances[self.window] = TextmapWindowHelper(self, self.window)
+    self._instances[self.view] = TextmapViewHelper(self, self.view)
 
   def do_deactivate(self):
-    if self.window in self._instances:
-      self._instances[self.window].deactivate()
+    if self.view in self._instances:
+      self._instances[self.view].deactivate()
 
   def update_ui(self):
-    if self.window in self._instances:
-      self._instances[self.window].update_ui()
+    if self.view in self._instances:
+      self._instances[self.view].update_ui()
