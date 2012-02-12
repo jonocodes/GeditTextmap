@@ -87,7 +87,10 @@ class TextmapView(Gtk.VBox):
 
     me.mapWidth = 200
     
-    darea.set_size_request(me.mapWidth, geditview.get_window(Gtk.TextWindowType.TEXT).get_height());
+    darea.set_size_request(me.mapWidth,
+      geditview.get_window(Gtk.TextWindowType.TEXT).get_height());
+
+    print ('starting with w ' + str(me.mapWidth) + ' h ' + str(geditview.get_window(Gtk.TextWindowType.TEXT).get_height()))
 
     me.pack_start(darea, True, True, 0)
     
@@ -110,9 +113,14 @@ class TextmapView(Gtk.VBox):
 
     me.lines = document_lines(me.currentBuffer)
 
-    me.geditview.add_child_in_window(me, Gtk.TextWindowType.TEXT, 
-      me.geditview.get_window(Gtk.TextWindowType.TEXT).get_width()-me.mapWidth, 0)
+    hpos = me.geditview.get_window(Gtk.TextWindowType.TEXT).get_width() - me.mapWidth
+    if me.geditview.get_window(Gtk.TextWindowType.LEFT):
+      hpos += me.geditview.get_window(Gtk.TextWindowType.LEFT).get_width()
+
+    me.geditview.add_child_in_window(me, Gtk.TextWindowType.RIGHT, hpos, 0)
     
+    print ('set to x ' + str(hpos) + ' ' + str(me.geditview.get_window(Gtk.TextWindowType.TEXT).get_width()))
+
     queue_refresh(me)
 
 
@@ -121,10 +129,11 @@ class TextmapView(Gtk.VBox):
     queue_refresh(me)
 
   def on_vadjustment_changed(me, adjustment):
-    y = adjustment.get_value() / 100
-#    print ('adjustment value = ' + str(adjustment.get_value()) + ' y =' + str(y))
-    me.geditview.move_child(me,
-      me.geditview.get_window(Gtk.TextWindowType.TEXT).get_width()-me.mapWidth, y)
+    hpos = me.geditview.get_window(Gtk.TextWindowType.TEXT).get_width() - me.mapWidth
+    if me.geditview.get_window(Gtk.TextWindowType.LEFT):
+      hpos += me.geditview.get_window(Gtk.TextWindowType.LEFT).get_width()
+
+    me.geditview.move_child(me, hpos, 0)
     queue_refresh(me)
 
   def on_darea_motion_notify_event(me, widget, event):
