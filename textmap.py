@@ -69,71 +69,123 @@ def str2rgb(s):
   return r,g,b
       
 class TextmapView(Gtk.VBox):
-  def __init__(me, geditview):
+  def __init__(me, geditwindow):
     Gtk.VBox.__init__(me)
     
-    me.geditview = geditview
-    
-    darea = Gtk.DrawingArea()
-    # TODO: handle resize
-    darea.connect("draw", me.draw)
-    
-    darea.add_events(Gdk.EventMask.BUTTON_PRESS_MASK)
-    darea.connect("button-press-event", me.button_press)
-    darea.connect("scroll-event", me.on_darea_scroll_event)
-
-    darea.add_events(Gdk.EventMask.POINTER_MOTION_MASK)
-    darea.connect("motion-notify-event", me.on_darea_motion_notify_event)
+    print ('init')
 
     me.mapWidth = 200
+
+    me.geditwindow = geditwindow
+#    me.geditview = geditview
+
+    me.geditwindow.connect_after("active-tab-changed", me.active_tab_changed)
+    me.geditwindow.connect_after("active-tab-state-changed", me.active_tab_state_changed)
+    me.geditwindow.connect_after("tab-added", me.tab_added)
+    #me.geditwindow.connect('map', me.on_map)
+
     
-    darea.set_size_request(me.mapWidth,
-      geditview.get_window(Gtk.TextWindowType.TEXT).get_height());
+    me.darea = Gtk.DrawingArea()
+    # TODO: handle resize
+    me.darea.connect("draw", me.draw)
+    
+    me.darea.add_events(Gdk.EventMask.BUTTON_PRESS_MASK)
+    me.darea.connect("button-press-event", me.button_press)
+    me.darea.connect("scroll-event", me.on_darea_scroll_event)
 
-    print ('starting with w ' + str(me.mapWidth) + ' h ' + str(geditview.get_window(Gtk.TextWindowType.TEXT).get_height()))
+    me.darea.add_events(Gdk.EventMask.POINTER_MOTION_MASK)
+    me.darea.connect("motion-notify-event", me.on_darea_motion_notify_event)
 
-    me.pack_start(darea, True, True, 0)
+    #me.geditwindow.connect("size-request", me.win_size_request)
+    
+    me.pack_start(me.darea, True, True, 0)
     
     me.show_all()
 
     me.topL = None
     me.botL = None
     me.scale = 4   # TODO: set this smartly somehow
-    me.darea = darea
 
     me.winHeight = 0
     me.winWidth = 0
     me.linePixelHeight = 0
 
-    me.currentView = geditview
-    me.currentBuffer = geditview.get_buffer()
+    me.currentBuffer = None
+    me.currentView = None
+
+#    queue_refresh(me)
+
+    # TODO: handle window resizing
+
+  def on_map(me, arg):
+    print ('map')
+    me.update_map_position()
+
+  def win_size_request(me, requisition):
+    print ('win-size-request')
+
+  def active_tab_state_changed(me, window):
+    print ('active-tab-state-changed')
+
+    #me.currentView = tab.get_active_view()
+    #me.currentBuffer = tab.get_active_tab().get_document()
+
+
+  def tab_added(me, window, tab):
+    print ('tab-added')
+    me.currentView = tab.get_view()
+    me.currentBuffer = tab.get_document()
+
+    me.currentView.connect_after('map', me.on_map)
 
     me.currentBuffer.connect('changed', me.on_doc_changed)
     me.currentView.get_vadjustment().connect('value-changed', me.on_vadjustment_changed)
+    # TODO: make sure value-changed is not conflicting with darea move events
+
+#    me.update_map_position()
+#    time.sleep(1)
+
+#    parent = me.currentView.get_parent()
+#    print ('parent ' + str(parent))
+
+    me.currentView.add_child_in_window(me, Gtk.TextWindowType.RIGHT, 0, 0)
+    
+  def active_tab_changed(me, tab, event):
+    print ('active-tab-changed')
+    me.currentView = tab.get_active_view()
+    me.currentBuffer = tab.get_active_tab().get_document()
 
     me.lines = document_lines(me.currentBuffer)
-
-    hpos = me.geditview.get_window(Gtk.TextWindowType.TEXT).get_width() - me.mapWidth
-    if me.geditview.get_window(Gtk.TextWindowType.LEFT):
-      hpos += me.geditview.get_window(Gtk.TextWindowType.LEFT).get_width()
-
-    me.geditview.add_child_in_window(me, Gtk.TextWindowType.RIGHT, hpos, 0)
-    
-    print ('set to x ' + str(hpos) + ' ' + str(me.geditview.get_window(Gtk.TextWindowType.TEXT).get_width()))
-
+#    me.update_map_position()
     queue_refresh(me)
 
+  def update_map_position(me):
+
+    hpos = 0
+
+#    print (me.currentView.get_window(Gtk.TextWindowType.TEXT))
+
+    if me.currentView.get_window(Gtk.TextWindowType.TEXT):
+      hpos = me.currentView.get_window(Gtk.TextWindowType.TEXT).get_width() - me.mapWidth
+    if me.currentView.get_window(Gtk.TextWindowType.LEFT):
+      hpos += me.currentView.get_window(Gtk.TextWindowType.LEFT).get_width()
+
+    me.currentView.move_child(me, hpos, 0)
+
+    if me.currentView.get_window(Gtk.TextWindowType.TEXT):
+      me.darea.set_size_request(me.mapWidth, me.currentView.get_window(Gtk.TextWindowType.TEXT).get_height());
+    else:
+      me.darea.set_size_request(me.mapWidth, 100)
+
+    print ('hpos ' + str(hpos) + ' height ' + str(me.currentView.get_window(Gtk.TextWindowType.TEXT).get_height()))
 
   def on_doc_changed(me, buffer):
     me.lines = document_lines(me.currentBuffer)
     queue_refresh(me)
 
   def on_vadjustment_changed(me, adjustment):
-    hpos = me.geditview.get_window(Gtk.TextWindowType.TEXT).get_width() - me.mapWidth
-    if me.geditview.get_window(Gtk.TextWindowType.LEFT):
-      hpos += me.geditview.get_window(Gtk.TextWindowType.LEFT).get_width()
+#    me.update_map_position()
 
-    me.geditview.move_child(me, hpos, 0)
     queue_refresh(me)
 
   def on_darea_motion_notify_event(me, widget, event):
@@ -195,7 +247,7 @@ class TextmapView(Gtk.VBox):
     cr.push_group()
     
     # draw the background
-    cr.set_source_rgb(*bg)
+    cr.set_source_rgba(bg[0], bg[1], bg[2], 0.95)
     cr.move_to(0,0)
     cr.rectangle(0,0,me.winWidth,me.winHeight)
     cr.fill()
@@ -251,11 +303,18 @@ class TextmapView(Gtk.VBox):
     cr.stroke()
 
 
-class TextmapViewHelper:
-  def __init__(me, plugin, view):
-    me.view = view
+class TextmapWindowHelper:
+  def __init__(me, plugin, window):
+    me.window = window
     me.plugin = plugin
-    me.textmapview = TextmapView(me.view)
+
+#    panel = me.window.get_side_panel()
+#    image = Gtk.Image()
+#    image.set_from_stock(Gtk.STOCK_DND_MULTIPLE, Gtk.IconSize.BUTTON)
+    me.textmapview = TextmapView(me.window)
+#    me.ui_id = panel.add_item(me.textmapview, "TextMap", "textMap", image)
+    
+#    me.panel = panel
 
   def deactivate(me):
     me.window = None
@@ -264,23 +323,22 @@ class TextmapViewHelper:
 
   def update_ui(me):
     queue_refresh(me.textmapview)
-    
-    
-class ViewActivatable(GObject.Object, Gedit.ViewActivatable):
+
+class WindowActivatable(GObject.Object, Gedit.WindowActivatable):
   
-  view = GObject.property(type=Gedit.View)
+  window = GObject.property(type=Gedit.Window)
 
   def __init__(self):
     GObject.Object.__init__(self)
-    self._instances = {}
+    self._instances = {}    # TODO: instances?
 
   def do_activate(self):
-    self._instances[self.view] = TextmapViewHelper(self, self.view)
+    self._instances[self.window] = TextmapWindowHelper(self, self.window)
 
   def do_deactivate(self):
-    if self.view in self._instances:
-      self._instances[self.view].deactivate()
+    if self.window in self._instances:
+      self._instances[self.window].deactivate()
 
   def update_ui(self):
-    if self.view in self._instances:
-      self._instances[self.view].update_ui()
+    if self.window in self._instances:
+      self._instances[self.window].update_ui()
