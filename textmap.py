@@ -61,9 +61,9 @@ def str2rgb(s):
   return r,g,b
 
 
-class TextmapWindow(Gtk.VBox):
+class TextmapWindow():
   def __init__(me, geditwindow):
-    Gtk.VBox.__init__(me)
+    #Gtk.VBox.__init__(me)
     
     print ('init window')
 
@@ -81,7 +81,7 @@ class TextmapWindow(Gtk.VBox):
 
 #    me.pack_start(geditwindow, True, True, 0)  # can we remove this?
 
-    me.show_all()
+#    me.show_all()
     
 
   def tab_added(me, window, tab):
@@ -96,9 +96,9 @@ class TextmapWindow(Gtk.VBox):
     print ('win size request')
 
 
-class TextmapView(Gtk.VBox):
+class TextmapView(Gtk.HBox):
   def __init__(me, view, thisbuffer):
-    Gtk.VBox.__init__(me)
+    Gtk.HBox.__init__(me)
     
     print ('init view')
 
@@ -121,9 +121,40 @@ class TextmapView(Gtk.VBox):
 
     me.darea.set_size_request(200, 300)
 
+#    me.set_property('homogeneous', True)
+    #print (me.get_property('homogeneous'))
 
-    me.pack_start(me.darea, True, True, 0)  # can we remove this?
+    # seems like HBox is not horizontally filling
+
+#    me.set_size_request(600,400)
+
+    mins, maxs = me.get_preferred_size()
+
+#   me.currentView.set_hexpand(True)
+#    me.currentView.set_halign(Gtk.Align.END)
+
+    halign = Gtk.Alignment()
+    halign.set(1,0,0,0)
+
+#    me.set_hexpand(True)
+    me.set_halign(Gtk.Align.END)
+#    me.darea.set_halign(Gtk.Align.FILL)
+
+
     me.currentView.add_child_in_window(me, Gtk.TextWindowType.RIGHT, 0, 0)
+
+
+    me.pack_start(halign, False, False, 20)
+    me.add(me.darea)
+
+
+
+    print ("box.window " + str(me.get_window()))
+    print ("preferred max width = " + str(maxs.width))
+    print ("hexpand = " + str(me.get_hexpand()))
+    print ("halign = " + str(me.get_halign()))
+    print ("allocated width = " + str(me.get_allocated_width()))
+    print ("allocated height = " + str(me.get_allocated_height()))
 
 
     me.show_all()
@@ -136,7 +167,7 @@ class TextmapView(Gtk.VBox):
     me.winWidth = 0
     me.linePixelHeight = 0
 
-    me.lines = None
+    me.lines = []
     me.lineMap = None
 
 
@@ -164,9 +195,9 @@ class TextmapView(Gtk.VBox):
     if me.currentView.get_window(Gtk.TextWindowType.LEFT):
       hpos += me.currentView.get_window(Gtk.TextWindowType.LEFT).get_width()
 
-    me.currentView.move_child(me, hpos, 0)
+#    me.currentView.move_child(me, hpos, 0)
 
-    me.darea.set_size_request(me.mapWidth, me.currentView.get_window(Gtk.TextWindowType.TEXT).get_height());
+#    me.darea.set_size_request(me.mapWidth, me.currentView.get_window(Gtk.TextWindowType.TEXT).get_height());
 
     print ('hpos ' + str(hpos) + ' height ' + str(me.currentView.get_window(Gtk.TextWindowType.TEXT).get_height()))
 
@@ -252,9 +283,6 @@ class TextmapView(Gtk.VBox):
     cr.fill()
     cr.move_to(0,0)
     
-    if not me.lines:
-      return
-
 
     if dark(*fg):
       faded_fg = lighten(.5,*fg)
@@ -263,17 +291,18 @@ class TextmapView(Gtk.VBox):
     
     cr.set_source_rgb(*fg)
 
+    if len(me.lines) != 0:
+      
+      sofarH = 0
 
-    sofarH = 0
+      for line in me.lines:
+        cr.show_text(line)  
+        sofarH += me.linePixelHeight
+        cr.move_to(0, sofarH)
 
-    for line in me.lines:
-      cr.show_text(line)  
-      sofarH += me.linePixelHeight
-      cr.move_to(0, sofarH)
-
-    cr.set_source(cr.pop_group())
-    cr.rectangle(0,0,me.mapWidth,height)
-    cr.fill()
+      cr.set_source(cr.pop_group())
+      cr.rectangle(0,0,me.mapWidth,height)
+      cr.fill()
 
     return surface
 
@@ -304,8 +333,13 @@ class TextmapView(Gtk.VBox):
 
     me.topL, me.botL = visible_lines_top_bottom(me.currentView)
 
-    firstLine = me.topL - int(((me.winHeight/me.linePixelHeight) - (me.botL - me.topL)) * float(me.topL)/float(len(me.lines)))
-    if firstLine < 0: firstLine = 0
+    if len(me.lines) != 0:
+      firstLine = me.topL - int(((me.winHeight/me.linePixelHeight) - (me.botL - me.topL)) * float(me.topL)/float(len(me.lines)))
+    else:
+      firstLine = 0
+
+    if firstLine < 0:
+      firstLine = 0
 
 
     # draw the background
@@ -315,9 +349,10 @@ class TextmapView(Gtk.VBox):
     # cr.fill()
 
     # place the pre-saved map
-    cr.set_source_surface(me.lineMap, 0, -firstLine * me.linePixelHeight)
-    cr.rectangle(0,0,me.mapWidth,me.winHeight)
-    cr.fill()
+    if me.lineMap:
+      cr.set_source_surface(me.lineMap, 0, -firstLine * me.linePixelHeight)
+      cr.rectangle(0,0,me.mapWidth,me.winHeight)
+      cr.fill()
 
     # draw the scrollbar
     topY = (me.topL - firstLine) * me.linePixelHeight
