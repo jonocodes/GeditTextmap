@@ -39,7 +39,7 @@ def visible_lines_top_bottom(view):
   topiter = view.get_line_at_y(rect.y)[0]
   botiter = view.get_line_at_y(rect.y+rect.height)[0]
   return topiter.get_line(), botiter.get_line()
-      
+  
 def dark(r,g,b):
   "return whether the color is light or dark"
   if r+g+b < 1.5:
@@ -54,12 +54,19 @@ def lighten(fraction,r,g,b):
   return r+(1-r)*fraction,g+(1-g)*fraction,b+(1-b)*fraction
 
 def queue_refresh(textmapview):
+#  print ('queue_refresh ' + str(textmapview.darea))
+#  print ('queue_refresh ' + str(textmapview.darea.get_window()))
   try:
     win = textmapview.darea.get_window()
   except AttributeError:
     win = textmapview.darea.window
-  if win:
-    textmapview.darea.queue_draw_area(0,0,win.get_width(),win.get_height())
+
+#  textmapview.darea.queue_draw()
+  textmapview.queue_draw()
+
+#  if win:
+#    print ('queue_refresh2')
+#    textmapview.darea.queue_draw_area(0,0,win.get_width(),win.get_height())
     
 def str2rgb(s):
   assert s.startswith('#') and len(s)==7,('not a color string',s)
@@ -67,26 +74,59 @@ def str2rgb(s):
   g = int(s[3:5],16)/256.
   b = int(s[5:7],16)/256.
   return r,g,b
-      
-class TextmapView(Gtk.VBox):
+
+
+class TextmapWindow(Gtk.VBox):
   def __init__(me, geditwindow):
     Gtk.VBox.__init__(me)
     
-    print ('init')
+    print ('init window')
 
     me.mapWidth = 200
 
     me.geditwindow = geditwindow
-#    me.geditview = geditview
 
     me.geditwindow.connect_after("active-tab-changed", me.active_tab_changed)
-    me.geditwindow.connect_after("active-tab-state-changed", me.active_tab_state_changed)
+#    me.geditwindow.connect_after("active-tab-state-changed", me.active_tab_state_changed)
     me.geditwindow.connect_after("tab-added", me.tab_added)
-    #me.geditwindow.connect('map', me.on_map)
+
+#    me.geditwindow.connect_after("size-request", me.size_request)
+
+    me.textmapviews = {}
+
+#    me.pack_start(geditwindow, True, True, 0)  # can we remove this?
+
+    me.show_all()
+    
+
+  def tab_added(me, window, tab):
+    print ('window tab-added ')
+    me.textmapviews[tab] = TextmapView(tab.get_view(), tab.get_document())
+
+
+  def active_tab_changed(me, window, tab):
+    print ('window active-tab-changed ')
+#    me.textmapviews[tab].update_map_position()
+
+  def size_request(me, requisition):
+    print ('win size request')
+
+
+class TextmapView(Gtk.VBox):
+  def __init__(me, view, thisbuffer):
+    Gtk.VBox.__init__(me)
+    
+    print ('init view')
+
+    me.mapWidth = 200
+
+    me.currentView = view
+    me.currentBuffer = thisbuffer
 
     
     me.darea = Gtk.DrawingArea()
-    # TODO: handle resize
+
+    me.connect('draw', me.draw)
     me.darea.connect("draw", me.draw)
     
     me.darea.add_events(Gdk.EventMask.BUTTON_PRESS_MASK)
@@ -96,10 +136,13 @@ class TextmapView(Gtk.VBox):
     me.darea.add_events(Gdk.EventMask.POINTER_MOTION_MASK)
     me.darea.connect("motion-notify-event", me.on_darea_motion_notify_event)
 
-    #me.geditwindow.connect("size-request", me.win_size_request)
-    
-    me.pack_start(me.darea, True, True, 0)
-    
+    me.darea.set_size_request(200, 300)
+
+
+    me.pack_start(me.darea, True, True, 0)  # can we remove this?
+    me.currentView.add_child_in_window(me, Gtk.TextWindowType.RIGHT, 0, 0)
+
+
     me.show_all()
 
     me.topL = None
@@ -110,72 +153,35 @@ class TextmapView(Gtk.VBox):
     me.winWidth = 0
     me.linePixelHeight = 0
 
-    me.currentBuffer = None
-    me.currentView = None
+    me.lines = None
 
-#    queue_refresh(me)
+    me.currentView.connect_after('map', me.on_map)
+    me.currentBuffer.connect('changed', me.on_doc_changed)
+    me.currentView.get_vadjustment().connect('value-changed', me.on_vadjustment_changed)
+    # TODO: make sure value-changed is not conflicting with darea move events
 
-    # TODO: handle window resizing
+#    me.currentView.connect('size-request', me.size_request)
 
   def on_map(me, arg):
     print ('map')
     me.update_map_position()
 
-  def win_size_request(me, requisition):
-    print ('win-size-request')
+  def size_request(me, requisition):
+    print ('view size-request')
 
-  def active_tab_state_changed(me, window):
-    print ('active-tab-state-changed')
-
-    #me.currentView = tab.get_active_view()
-    #me.currentBuffer = tab.get_active_tab().get_document()
-
-
-  def tab_added(me, window, tab):
-    print ('tab-added')
-    me.currentView = tab.get_view()
-    me.currentBuffer = tab.get_document()
-
-    me.currentView.connect_after('map', me.on_map)
-
-    me.currentBuffer.connect('changed', me.on_doc_changed)
-    me.currentView.get_vadjustment().connect('value-changed', me.on_vadjustment_changed)
-    # TODO: make sure value-changed is not conflicting with darea move events
-
-#    me.update_map_position()
-#    time.sleep(1)
-
-#    parent = me.currentView.get_parent()
-#    print ('parent ' + str(parent))
-
-    me.currentView.add_child_in_window(me, Gtk.TextWindowType.RIGHT, 0, 0)
-    
-  def active_tab_changed(me, tab, event):
-    print ('active-tab-changed')
-    me.currentView = tab.get_active_view()
-    me.currentBuffer = tab.get_active_tab().get_document()
-
-    me.lines = document_lines(me.currentBuffer)
-#    me.update_map_position()
-    queue_refresh(me)
 
   def update_map_position(me):
 
     hpos = 0
 
-#    print (me.currentView.get_window(Gtk.TextWindowType.TEXT))
+    hpos = me.currentView.get_window(Gtk.TextWindowType.TEXT).get_width() - me.mapWidth
 
-    if me.currentView.get_window(Gtk.TextWindowType.TEXT):
-      hpos = me.currentView.get_window(Gtk.TextWindowType.TEXT).get_width() - me.mapWidth
     if me.currentView.get_window(Gtk.TextWindowType.LEFT):
       hpos += me.currentView.get_window(Gtk.TextWindowType.LEFT).get_width()
 
     me.currentView.move_child(me, hpos, 0)
 
-    if me.currentView.get_window(Gtk.TextWindowType.TEXT):
-      me.darea.set_size_request(me.mapWidth, me.currentView.get_window(Gtk.TextWindowType.TEXT).get_height());
-    else:
-      me.darea.set_size_request(me.mapWidth, 100)
+    me.darea.set_size_request(me.mapWidth, me.currentView.get_window(Gtk.TextWindowType.TEXT).get_height());
 
     print ('hpos ' + str(hpos) + ' height ' + str(me.currentView.get_window(Gtk.TextWindowType.TEXT).get_height()))
 
@@ -184,8 +190,6 @@ class TextmapView(Gtk.VBox):
     queue_refresh(me)
 
   def on_vadjustment_changed(me, adjustment):
-#    me.update_map_position()
-
     queue_refresh(me)
 
   def on_darea_motion_notify_event(me, widget, event):
@@ -311,7 +315,7 @@ class TextmapWindowHelper:
 #    panel = me.window.get_side_panel()
 #    image = Gtk.Image()
 #    image.set_from_stock(Gtk.STOCK_DND_MULTIPLE, Gtk.IconSize.BUTTON)
-    me.textmapview = TextmapView(me.window)
+    me.textmapview = TextmapWindow(me.window)
 #    me.ui_id = panel.add_item(me.textmapview, "TextMap", "textMap", image)
     
 #    me.panel = panel
@@ -322,6 +326,7 @@ class TextmapWindowHelper:
     me.textmapview = None
 
   def update_ui(me):
+    print ('update_ui')
     queue_refresh(me.textmapview)
 
 class WindowActivatable(GObject.Object, Gedit.WindowActivatable):
