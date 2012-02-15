@@ -27,7 +27,7 @@ from gi.repository import Gtk, GdkPixbuf, Gdk, GtkSource, Gio, Gedit, GObject
 
 version = "0.2 beta - gtk3"
 
-
+# TODO: remove global functions
 def document_lines(document):
   if not document:
     return None
@@ -52,21 +52,6 @@ def darken(fraction,r,g,b):
   
 def lighten(fraction,r,g,b):
   return r+(1-r)*fraction,g+(1-g)*fraction,b+(1-b)*fraction
-
-def queue_refresh(textmapview):
-#  print ('queue_refresh ' + str(textmapview.darea))
-#  print ('queue_refresh ' + str(textmapview.darea.get_window()))
-  try:
-    win = textmapview.darea.get_window()
-  except AttributeError:
-    win = textmapview.darea.window
-
-#  textmapview.darea.queue_draw()
-  textmapview.queue_draw()
-
-#  if win:
-#    print ('queue_refresh2')
-#    textmapview.darea.queue_draw_area(0,0,win.get_width(),win.get_height())
     
 def str2rgb(s):
   assert s.startswith('#') and len(s)==7,('not a color string',s)
@@ -103,7 +88,6 @@ class TextmapWindow(Gtk.VBox):
     print ('window tab-added ')
     me.textmapviews[tab] = TextmapView(tab.get_view(), tab.get_document())
 
-
   def active_tab_changed(me, window, tab):
     print ('window active-tab-changed ')
 #    me.textmapviews[tab].update_map_position()
@@ -126,7 +110,6 @@ class TextmapView(Gtk.VBox):
     
     me.darea = Gtk.DrawingArea()
 
-    me.connect('draw', me.draw)
     me.darea.connect("draw", me.draw)
     
     me.darea.add_events(Gdk.EventMask.BUTTON_PRESS_MASK)
@@ -154,6 +137,8 @@ class TextmapView(Gtk.VBox):
     me.linePixelHeight = 0
 
     me.lines = None
+    me.lineMap = None
+
 
     me.currentView.connect_after('map', me.on_map)
     me.currentBuffer.connect('changed', me.on_doc_changed)
@@ -187,10 +172,11 @@ class TextmapView(Gtk.VBox):
 
   def on_doc_changed(me, buffer):
     me.lines = document_lines(me.currentBuffer)
-    queue_refresh(me)
+    me.lineMap = me.build_map()
+    me.queue_draw()
 
   def on_vadjustment_changed(me, adjustment):
-    queue_refresh(me)
+    me.queue_draw()
 
   def on_darea_motion_notify_event(me, widget, event):
     "used for clicking and dragging"
@@ -211,20 +197,88 @@ class TextmapView(Gtk.VBox):
 
     me.currentView.scroll_to_iter(me.currentBuffer.get_iter_at_line_index(newI,0),0,False,0,0)
     
-    queue_refresh(me)
+    me.queue_draw()
     
   def scroll_from_y_mouse_pos(me,y):
 
     me.currentView.scroll_to_iter(me.currentBuffer.get_iter_at_line_index(int((len(me.lines) + (me.botL - me.topL)) * y/me.winHeight),0),0,True,0,.5)
-    queue_refresh(me)
+    me.queue_draw()
     
   def button_press(me, widget, event):
     me.scroll_from_y_mouse_pos(event.y)
   
-  def draw(me, widget, cr):
+  def build_map(me):
+    "build the graphical map object with full height and no scroll bar"
 
-    if not me.currentBuffer or not me.currentView:   # nothing open yet
+    bg = (0,0,0)
+    fg = (1,1,1)
+    try:
+      style = me.currentBuffer.get_style_scheme().get_style('text')
+      if style is None: # there is a style scheme, but it does not specify default
+        bg = (1,1,1)
+        fg = (0,0,0)
+      else:
+        fg,bg = map(str2rgb, style.get_properties('foreground','background'))  
+    except:
+      pass  # probably an older version of gedit, no style schemes yet
+
+    # set linePixelHeight
+    if me.linePixelHeight == 0:
+
+      surface1 = cairo.ImageSurface(cairo.FORMAT_ARGB32, me.mapWidth, 100)
+      cr1 = cairo.Context(surface1)
+
+      cr1.select_font_face('monospace', cairo.FONT_SLANT_NORMAL, cairo.FONT_WEIGHT_NORMAL)
+      cr1.set_font_size(me.scale)
+
+      me.linePixelHeight = cr1.text_extents("L")[3] # height # TODO: make this more global
+
+    height = int(me.linePixelHeight * len(me.lines))
+
+#    print ("buildmap width " + str(me.mapWidth) + " height " + str(height) + " lineHeight " + str(me.linePixelHeight))
+
+    surface = cairo.ImageSurface(cairo.FORMAT_ARGB32, me.mapWidth, height)
+    cr = cairo.Context(surface)
+
+    cr.select_font_face('monospace', cairo.FONT_SLANT_NORMAL, cairo.FONT_WEIGHT_NORMAL)
+    cr.set_font_size(me.scale)
+
+    cr.push_group()
+    
+    # draw the background
+    cr.set_source_rgba(bg[0], bg[1], bg[2], 0.95)
+    cr.move_to(0,0)
+    cr.rectangle(0,0,me.mapWidth,height)
+    cr.fill()
+    cr.move_to(0,0)
+    
+    if not me.lines:
       return
+
+
+    if dark(*fg):
+      faded_fg = lighten(.5,*fg)
+    else:
+      faded_fg = darken(.5,*fg)
+    
+    cr.set_source_rgb(*fg)
+
+
+    sofarH = 0
+
+    for line in me.lines:
+      cr.show_text(line)  
+      sofarH += me.linePixelHeight
+      cr.move_to(0, sofarH)
+
+    cr.set_source(cr.pop_group())
+    cr.rectangle(0,0,me.mapWidth,height)
+    cr.fill()
+
+    return surface
+
+
+  def draw(me, widget, cr):
     
     bg = (0,0,0)
     fg = (1,1,1)
@@ -248,51 +302,21 @@ class TextmapView(Gtk.VBox):
     me.winHeight = win.get_height()
     me.winWidth = win.get_width()
 
-    cr.push_group()
-    
-    # draw the background
-    cr.set_source_rgba(bg[0], bg[1], bg[2], 0.95)
-    cr.move_to(0,0)
-    cr.rectangle(0,0,me.winWidth,me.winHeight)
-    cr.fill()
-    cr.move_to(0,0)
-    
-    if not me.lines:
-      return
-
-    # draw the text
-    cr.select_font_face('monospace', cairo.FONT_SLANT_NORMAL, cairo.FONT_WEIGHT_NORMAL)
-    cr.set_font_size(me.scale)
-
-    if me.linePixelHeight == 0:
-      me.linePixelHeight = cr.text_extents("L")[3] # height # TODO: make this more global
-
     me.topL, me.botL = visible_lines_top_bottom(me.currentView)
 
-    if dark(*fg):
-      faded_fg = lighten(.5,*fg)
-    else:
-      faded_fg = darken(.5,*fg)
-    
-    cr.set_source_rgb(*fg)
-
-    textViewLines = int(me.winHeight/me.linePixelHeight)
-
-    firstLine = me.topL - int((textViewLines - (me.botL - me.topL)) * float(me.topL)/float(len(me.lines)))
+    firstLine = me.topL - int(((me.winHeight/me.linePixelHeight) - (me.botL - me.topL)) * float(me.topL)/float(len(me.lines)))
     if firstLine < 0: firstLine = 0
 
-    lastLine =  firstLine + textViewLines
-    if lastLine > len(me.lines): lastLine = len(me.lines)
 
-    sofarH = 0
+    # draw the background
+    # TODO: remove this once the overflow is figured out
+    # cr.set_source_rgba(bg[0], bg[1], bg[2], 0.95)
+    # cr.rectangle(0,0,me.winWidth,me.winHeight)
+    # cr.fill()
 
-    for i in range(firstLine, lastLine, 1):
-      cr.show_text(me.lines[i])  
-      sofarH += me.linePixelHeight
-      cr.move_to(0, sofarH)
-
-    cr.set_source(cr.pop_group())
-    cr.rectangle(0,0,me.winWidth,me.winHeight)
+    # place the pre-saved map
+    cr.set_source_surface(me.lineMap, 0, -firstLine * me.linePixelHeight)
+    cr.rectangle(0,0,me.mapWidth,me.winHeight)
     cr.fill()
 
     # draw the scrollbar
@@ -305,6 +329,89 @@ class TextmapView(Gtk.VBox):
     cr.rectangle(0,topY,me.winWidth,botY-topY)
     cr.fill()
     cr.stroke()
+
+
+  # def draw_old(me, widget, cr):
+    
+  #   bg = (0,0,0)
+  #   fg = (1,1,1)
+  #   try:
+  #     style = me.currentBuffer.get_style_scheme().get_style('text')
+  #     if style is None: # there is a style scheme, but it does not specify default
+  #       bg = (1,1,1)
+  #       fg = (0,0,0)
+  #     else:
+  #       fg,bg = map(str2rgb, style.get_properties('foreground','background'))  
+  #   except:
+  #     pass  # probably an older version of gedit, no style schemes yet
+
+  #   try:
+  #     win = widget.get_window()
+  #   except AttributeError:
+  #     win = widget.window
+
+  #   cr = win.cairo_create()
+
+  #   me.winHeight = win.get_height()
+  #   me.winWidth = win.get_width()
+
+  #   cr.push_group()
+    
+  #   # draw the background
+  #   cr.set_source_rgba(bg[0], bg[1], bg[2], 0.95)
+  #   cr.move_to(0,0)
+  #   cr.rectangle(0,0,me.winWidth,me.winHeight)
+  #   cr.fill()
+  #   cr.move_to(0,0)
+    
+  #   if not me.lines:
+  #     return
+
+  #   # draw the text
+  #   cr.select_font_face('monospace', cairo.FONT_SLANT_NORMAL, cairo.FONT_WEIGHT_NORMAL)
+  #   cr.set_font_size(me.scale)
+
+  #   if me.linePixelHeight == 0:
+  #     me.linePixelHeight = cr.text_extents("L")[3] # height # TODO: make this more global
+
+  #   me.topL, me.botL = visible_lines_top_bottom(me.currentView)
+
+  #   if dark(*fg):
+  #     faded_fg = lighten(.5,*fg)
+  #   else:
+  #     faded_fg = darken(.5,*fg)
+    
+  #   cr.set_source_rgb(*fg)
+
+  #   textViewLines = int(me.winHeight/me.linePixelHeight)
+
+  #   firstLine = me.topL - int((textViewLines - (me.botL - me.topL)) * float(me.topL)/float(len(me.lines)))
+  #   if firstLine < 0: firstLine = 0
+
+  #   lastLine =  firstLine + textViewLines
+  #   if lastLine > len(me.lines): lastLine = len(me.lines)
+
+  #   sofarH = 0
+
+  #   for i in range(firstLine, lastLine, 1):
+  #     cr.show_text(me.lines[i])  
+  #     sofarH += me.linePixelHeight
+  #     cr.move_to(0, sofarH)
+
+  #   cr.set_source(cr.pop_group())
+  #   cr.rectangle(0,0,me.winWidth,me.winHeight)
+  #   cr.fill()
+
+  #   # draw the scrollbar
+  #   topY = (me.topL - firstLine) * me.linePixelHeight
+  #   if topY < 0: topY = 0
+  #   botY = topY + me.linePixelHeight*(me.botL-me.topL)
+  #   # TODO: handle case   if botY > ?
+
+  #   cr.set_source_rgba(.3,.3,.3,.35)
+  #   cr.rectangle(0,topY,me.winWidth,botY-topY)
+  #   cr.fill()
+  #   cr.stroke()
 
 
 class TextmapWindowHelper:
@@ -327,7 +434,7 @@ class TextmapWindowHelper:
 
   def update_ui(me):
     print ('update_ui')
-    queue_refresh(me.textmapview)
+    me.textmapview.queue_draw()
 
 class WindowActivatable(GObject.Object, Gedit.WindowActivatable):
   
