@@ -23,7 +23,7 @@ import re
 import copy
 import platform
 
-from gi.repository import Gtk, GdkPixbuf, Gdk, GtkSource, Gio, Gedit, GObject
+from gi.repository import Gtk, Gdk, GdkPixbuf, GtkSource, Gio, Gedit, GObject
 
 version = "0.2 beta - gtk3"
 
@@ -60,10 +60,22 @@ def str2rgb(s):
   b = int(s[5:7],16)/256.
   return r,g,b
 
+def screenshot(w):
+#  w = Gdk.get_default_root_window()
+  width = w.get_width()
+  height = w.get_height()
+  print ("screenshot dimensions " + str(width) + " " + str(height))
+
+  pb = GdkPixbuf.Pixbuf(colorspace = GdkPixbuf.Colorspace.RGB, has_alpha = False, bits_per_sample = 8, width = width, height = height)
+  pb = GdkPixbuf.Pixbuf.get_from_window(w, 0, 0, width, height)
+
+  return pb
+
+
 
 class TextmapWindow():
   def __init__(me, geditwindow):
-    #Gtk.VBox.__init__(me)
+    #GObject.GObject.__init__(me)
     
     print ('init window')
 
@@ -98,7 +110,7 @@ class TextmapWindow():
 
 class TextmapView(Gtk.HBox):
   def __init__(me, view, thisbuffer):
-    Gtk.HBox.__init__(me)
+    GObject.GObject.__init__(me)
     
     print ('init view')
 
@@ -119,38 +131,41 @@ class TextmapView(Gtk.HBox):
     me.darea.add_events(Gdk.EventMask.POINTER_MOTION_MASK)
     me.darea.connect("motion-notify-event", me.on_darea_motion_notify_event)
 
+    me.darea.set_halign(Gtk.Align.END)
     me.darea.set_size_request(200, 300)
 
-#    me.set_property('homogeneous', True)
-    #print (me.get_property('homogeneous'))
+    # add the darea to the gedit view overlay
+    me.currentView.get_parent().get_parent().add_overlay(me.darea)
 
-    # seems like HBox is not horizontally filling
+# #    me.set_property('homogeneous', True)
+#     #print (me.get_property('homogeneous'))
 
-#    me.set_size_request(600,400)
+#     # seems like HBox is not horizontally filling
 
-    mins, maxs = me.get_preferred_size()
+# #    me.set_size_request(600,400)
 
-#   me.currentView.set_hexpand(True)
-#    me.currentView.set_halign(Gtk.Align.END)
+#     mins, maxs = me.get_preferred_size()
 
-    halign = Gtk.Alignment()
-    halign.set(1,0,0,0)
+# #   me.currentView.set_hexpand(True)
+# #    me.currentView.set_halign(Gtk.Align.END)
 
-#    me.set_hexpand(True)
-    me.set_halign(Gtk.Align.END)
-#    me.darea.set_halign(Gtk.Align.FILL)
+#     halign = Gtk.Alignment.new()
+#     halign.set(1,0,0,0)
+
+# #    me.set_hexpand(True)
+#     me.set_halign(Gtk.Align.END)
+# #    me.darea.set_halign(Gtk.Align.FILL)
 
 
-    me.currentView.add_child_in_window(me, Gtk.TextWindowType.RIGHT, 0, 0)
+#     me.currentView.add_child_in_window(me, Gtk.TextWindowType.RIGHT, 0, 0)
 
 
-    me.pack_start(halign, False, False, 20)
-    me.add(me.darea)
+#     me.pack_start(halign, False, False, 20)
+#     me.add(me.darea)
 
 
 
     print ("box.window " + str(me.get_window()))
-    print ("preferred max width = " + str(maxs.width))
     print ("hexpand = " + str(me.get_hexpand()))
     print ("halign = " + str(me.get_halign()))
     print ("allocated width = " + str(me.get_allocated_width()))
@@ -204,6 +219,15 @@ class TextmapView(Gtk.HBox):
   def on_doc_changed(me, buffer):
     me.lines = document_lines(me.currentBuffer)
     me.lineMap = me.build_map()
+    
+    # pb = screenshot(me.currentView.get_window(Gtk.TextWindowType.TEXT))
+
+    # if (pb != None):
+    #   pb.savev("view.png", "png",[], [])
+    #   print ("Screenshot saved.")
+    # else:
+    #   print ("Unable to get the screenshot.")
+
     me.queue_draw()
 
   def on_vadjustment_changed(me, adjustment):
@@ -212,7 +236,7 @@ class TextmapView(Gtk.HBox):
   def on_darea_motion_notify_event(me, widget, event):
     "used for clicking and dragging"
 
-    if event.state & Gdk.ModifierType.BUTTON1_MASK:
+    if event.get_state() & Gdk.ModifierType.BUTTON1_MASK:
       me.scroll_from_y_mouse_pos(event.y)
     
   def on_darea_scroll_event(me, widget, event):
@@ -480,11 +504,14 @@ class WindowActivatable(GObject.Object, Gedit.WindowActivatable):
     self._instances = {}    # TODO: instances?
 
   def do_activate(self):
+    print ('activating')
     self._instances[self.window] = TextmapWindowHelper(self, self.window)
 
   def do_deactivate(self):
     if self.window in self._instances:
+      print ('dactivating')
       self._instances[self.window].deactivate()
+      self._instances[self.window] = None
 
   def update_ui(self):
     if self.window in self._instances:
