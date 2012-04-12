@@ -106,9 +106,9 @@ class TextmapWindow():
     print ('win size request')
 
 
-class TextmapView():
+class TextmapView(Gtk.HBox):
   def __init__(me, view, thisbuffer):
-#    GObject.GObject.__init__(me)
+    GObject.GObject.__init__(me)
     
     print ('init view')
 
@@ -117,63 +117,25 @@ class TextmapView():
     me.currentView = view
     me.currentBuffer = thisbuffer
 
-    me.currentView.set_border_window_size(Gtk.TextWindowType.RIGHT, me.mapWidth)
+    me.currentView.connect('realize', me.view_realized)
+
+#     me.currentView.set_border_window_size(Gtk.TextWindowType.RIGHT, me.mapWidth)
     
-    me.darea = me.currentView.get_window(Gtk.TextWindowType.RIGHT)
+#     me.darea = me.currentView.get_window(Gtk.TextWindowType.RIGHT)
 
-#    me.darea = Gtk.DrawingArea()
+# #    me.darea = Gtk.DrawingArea()
 
-    me.darea.connect("draw", me.draw)
+#     me.darea.connect("draw", me.draw)
     
-    me.darea.add_events(Gdk.EventMask.BUTTON_PRESS_MASK)
-    me.darea.connect("button-press-event", me.button_press)
-    me.darea.connect("scroll-event", me.on_darea_scroll_event)
+#     me.darea.add_events(Gdk.EventMask.BUTTON_PRESS_MASK)
+#     me.darea.connect("button-press-event", me.button_press)
+#     me.darea.connect("scroll-event", me.on_darea_scroll_event)
 
-    me.darea.add_events(Gdk.EventMask.POINTER_MOTION_MASK)
-    me.darea.connect("motion-notify-event", me.on_darea_motion_notify_event)
-
-#    me.darea.set_halign(Gtk.Align.END)
-#    me.darea.set_size_request(200, 300)
-
-    # add the darea to the gedit view overlay
-#    me.currentView.get_parent().get_parent().add_overlay(me.darea)
-
-# #    me.set_property('homogeneous', True)
-#     #print (me.get_property('homogeneous'))
-
-#     # seems like HBox is not horizontally filling
-
-# #    me.set_size_request(600,400)
-
-#     mins, maxs = me.get_preferred_size()
-
-# #   me.currentView.set_hexpand(True)
-# #    me.currentView.set_halign(Gtk.Align.END)
-
-#     halign = Gtk.Alignment.new()
-#     halign.set(1,0,0,0)
-
-# #    me.set_hexpand(True)
-#     me.set_halign(Gtk.Align.END)
-# #    me.darea.set_halign(Gtk.Align.FILL)
+#     me.darea.add_events(Gdk.EventMask.POINTER_MOTION_MASK)
+#     me.darea.connect("motion-notify-event", me.on_darea_motion_notify_event)
 
 
-#     me.currentView.add_child_in_window(me, Gtk.TextWindowType.RIGHT, 0, 0)
-
-
-#     me.pack_start(halign, False, False, 20)
-#     me.add(me.darea)
-
-
-
-    # print ("box.window " + str(me.get_window()))
-    # print ("hexpand = " + str(me.get_hexpand()))
-    # print ("halign = " + str(me.get_halign()))
-    # print ("allocated width = " + str(me.get_allocated_width()))
-    # print ("allocated height = " + str(me.get_allocated_height()))
-
-
-    me.show_all()
+#    me.show_all()
 
     me.topL = None
     me.botL = None
@@ -193,6 +155,30 @@ class TextmapView():
     # TODO: make sure value-changed is not conflicting with darea move events
 
 #    me.currentView.connect('size-request', me.size_request)
+
+  def view_realized(me, arg):
+
+    me.currentView.set_border_window_size(Gtk.TextWindowType.RIGHT, me.mapWidth)
+    
+#    me.darea = me.currentView.get_window(Gtk.TextWindowType.RIGHT)
+
+    me.darea = Gtk.DrawingArea()
+
+    me.darea.set_size_request(200, 300)
+
+    me.darea.connect("draw", me.draw)
+    
+    me.darea.add_events(Gdk.EventMask.BUTTON_PRESS_MASK)
+    me.darea.connect("button-press-event", me.button_press)
+    me.darea.connect("scroll-event", me.on_darea_scroll_event)
+
+    me.darea.add_events(Gdk.EventMask.POINTER_MOTION_MASK)
+    me.darea.connect("motion-notify-event", me.on_darea_motion_notify_event)
+
+
+    me.currentView.add_child_in_window(me.darea, Gtk.TextWindowType.RIGHT, 0, 0)
+    
+
 
   def on_map(me, arg):
     print ('map')
@@ -334,6 +320,8 @@ class TextmapView():
 
   def draw(me, widget, cr):
     
+    print ("draw called")
+
     bg = (0,0,0)
     fg = (1,1,1)
     try:
