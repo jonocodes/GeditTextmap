@@ -79,8 +79,6 @@ class TextmapWindow():
     
     print ('init window')
 
-    me.mapWidth = 200
-
     me.geditwindow = geditwindow
 
     me.geditwindow.connect_after("active-tab-changed", me.active_tab_changed)
@@ -108,9 +106,9 @@ class TextmapWindow():
     print ('win size request')
 
 
-class TextmapView(Gtk.HBox):
+class TextmapView():
   def __init__(me, view, thisbuffer):
-    GObject.GObject.__init__(me)
+#    GObject.GObject.__init__(me)
     
     print ('init view')
 
@@ -119,8 +117,11 @@ class TextmapView(Gtk.HBox):
     me.currentView = view
     me.currentBuffer = thisbuffer
 
+    me.currentView.set_border_window_size(Gtk.TextWindowType.RIGHT, me.mapWidth)
     
-    me.darea = Gtk.DrawingArea()
+    me.darea = me.currentView.get_window(Gtk.TextWindowType.RIGHT)
+
+#    me.darea = Gtk.DrawingArea()
 
     me.darea.connect("draw", me.draw)
     
@@ -131,11 +132,11 @@ class TextmapView(Gtk.HBox):
     me.darea.add_events(Gdk.EventMask.POINTER_MOTION_MASK)
     me.darea.connect("motion-notify-event", me.on_darea_motion_notify_event)
 
-    me.darea.set_halign(Gtk.Align.END)
-    me.darea.set_size_request(200, 300)
+#    me.darea.set_halign(Gtk.Align.END)
+#    me.darea.set_size_request(200, 300)
 
     # add the darea to the gedit view overlay
-    me.currentView.get_parent().get_parent().add_overlay(me.darea)
+#    me.currentView.get_parent().get_parent().add_overlay(me.darea)
 
 # #    me.set_property('homogeneous', True)
 #     #print (me.get_property('homogeneous'))
@@ -165,11 +166,11 @@ class TextmapView(Gtk.HBox):
 
 
 
-    print ("box.window " + str(me.get_window()))
-    print ("hexpand = " + str(me.get_hexpand()))
-    print ("halign = " + str(me.get_halign()))
-    print ("allocated width = " + str(me.get_allocated_width()))
-    print ("allocated height = " + str(me.get_allocated_height()))
+    # print ("box.window " + str(me.get_window()))
+    # print ("hexpand = " + str(me.get_hexpand()))
+    # print ("halign = " + str(me.get_halign()))
+    # print ("allocated width = " + str(me.get_allocated_width()))
+    # print ("allocated height = " + str(me.get_allocated_height()))
 
 
     me.show_all()
